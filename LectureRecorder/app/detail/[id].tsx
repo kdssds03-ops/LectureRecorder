@@ -12,6 +12,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useRecordingStore, RecordingMeta } from '@/store/useRecordingStore';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -34,6 +35,18 @@ export default function DetailScreen() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackPosition, setPlaybackPosition] = useState(0);
   const [playbackDuration, setPlaybackDuration] = useState(0);
+  const [fileExists, setFileExists] = useState<boolean | null>(null); // null = checking
+
+  // Check whether the audio file still exists on disk
+  useEffect(() => {
+    if (!recording?.uri) {
+      setFileExists(false);
+      return;
+    }
+    FileSystem.getInfoAsync(recording.uri).then((info) => {
+      setFileExists(info.exists);
+    });
+  }, [recording?.uri]);
 
   useEffect(() => {
     return () => {
@@ -77,6 +90,10 @@ export default function DetailScreen() {
 
   const handleTranscribe = useCallback(async () => {
     if (!recording) return;
+    if (fileExists === false) {
+      Alert.alert('파일 없음', '오디오 파일이 삭제되었거나 찾을 수 없습니다.');
+      return;
+    }
     setIsProcessing(true);
     try {
       const result = await transcribeAudio(recording.uri);
@@ -86,7 +103,7 @@ export default function DetailScreen() {
     } finally {
       setIsProcessing(false);
     }
-  }, [recording]);
+  }, [recording, fileExists]);
 
   const handleSummarize = useCallback(async () => {
     if (!recording || !recording.transcript) {
@@ -131,6 +148,43 @@ export default function DetailScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
         <Text style={[styles.errorText, { color: theme.text }]}>녹음을 찾을 수 없습니다.</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // Still checking file existence — show a brief loading state
+  if (fileExists === null) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 100 }} />
+      </SafeAreaView>
+    );
+  }
+
+  // Audio file was deleted from disk — show clear error with back button
+  if (fileExists === false) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} accessibilityLabel="뒤로 가기">
+            <MaterialIcons name="arrow-back" size={28} color={theme.text} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>{recording.name}</Text>
+          <View style={{ width: 28 }} />
+        </View>
+        <View style={styles.missingFileContainer}>
+          <MaterialIcons name="error-outline" size={64} color={theme.error} />
+          <Text style={[styles.missingFileTitle, { color: theme.text }]}>파일을 찾을 수 없음</Text>
+          <Text style={[styles.missingFileDesc, { color: theme.border }]}>
+            오디오 파일이 기기에서 삭제되었습니다.{'\n'}
+            저장된 텍스트 기록은 아래에서 확인할 수 있습니다.
+          </Text>
+          {recording.transcript ? (
+            <Text style={[styles.contentText, { color: theme.text, marginTop: 24 }]}>
+              {recording.transcript}
+            </Text>
+          ) : null}
+        </View>
       </SafeAreaView>
     );
   }
@@ -368,5 +422,22 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  missingFileContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  missingFileTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  missingFileDesc: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
   },
 });

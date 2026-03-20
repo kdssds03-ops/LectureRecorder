@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, Text, View, FlatList, TouchableOpacity, SafeAreaView } from 'react-native';
+import { StyleSheet, Text, View, FlatList, TouchableOpacity, SafeAreaView, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRecordingStore } from '@/store/useRecordingStore';
@@ -10,7 +10,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  const { recordings, loadRecordings } = useRecordingStore();
+  const { recordings, loadRecordings, removeRecording } = useRecordingStore();
 
   useEffect(() => {
     loadRecordings();
@@ -62,7 +62,26 @@ export default function HomeScreen() {
                   {formatDate(item.createdAt)} • {formatDuration(item.duration)}
                 </Text>
               </View>
-              <MaterialIcons name="chevron-right" size={28} color={theme.border} />
+              <TouchableOpacity
+                onPress={() =>
+                  Alert.alert(
+                    '녹음 삭제',
+                    `"${item.name}"을(를) 삭제할까요? 이 작업은 실행취소할 수 없습니다.`,
+                    [
+                      { text: '취소', style: 'cancel' },
+                      {
+                        text: '삭제',
+                        style: 'destructive',
+                        onPress: () => removeRecording(item.id),
+                      },
+                    ]
+                  )
+                }
+                accessibilityLabel="녹음 삭제"
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <MaterialIcons name="delete-outline" size={28} color={theme.error} />
+              </TouchableOpacity>
             </View>
           </TouchableOpacity>
         )}
