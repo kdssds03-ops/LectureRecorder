@@ -11,41 +11,39 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { getApiKey, setApiKey } from '@/api/aiService';
+import { getBackendUrl, setBackendUrl, getAppSecret, setAppSecret } from '@/api/aiService';
 
 export default function SettingsScreen() {
-  const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
 
-  const [assemblyKey, setAssemblyKey] = useState('');
-  const [openaiKey, setOpenaiKey] = useState('');
+  const [backendUrl, setBackendUrlState] = useState('');
+  const [appSecret, setAppSecretState] = useState('');
 
   useEffect(() => {
     (async () => {
-      setAssemblyKey(await getApiKey('assemblyai'));
-      setOpenaiKey(await getApiKey('openai'));
+      setBackendUrlState(await getBackendUrl());
+      setAppSecretState(await getAppSecret());
     })();
   }, []);
 
   const handleSave = async () => {
-    await setApiKey('assemblyai', assemblyKey.trim());
-    await setApiKey('openai', openaiKey.trim());
-    Alert.alert('저장 완료', 'API 키가 안전하게 저장되었습니다.');
+    if (!backendUrl.trim().startsWith('http')) {
+      Alert.alert('입력 오류', '백엔드 URL은 http:// 또는 https://로 시작해야 합니다.');
+      return;
+    }
+    await setBackendUrl(backendUrl);
+    await setAppSecret(appSecret);
+    Alert.alert('저장 완료', '설정이 저장되었습니다.');
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} accessibilityLabel="뒤로 가기">
-          <MaterialIcons name="arrow-back" size={28} color={theme.text} />
-        </TouchableOpacity>
         <Text style={[styles.title, { color: theme.text }]}>설정</Text>
-        <View style={{ width: 28 }} />
       </View>
 
       <KeyboardAvoidingView
@@ -54,35 +52,36 @@ export default function SettingsScreen() {
       >
         <ScrollView contentContainerStyle={styles.content}>
           <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>🔑 API 키 설정</Text>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>🔗 백엔드 서버 설정</Text>
             <Text style={[styles.description, { color: theme.border }]}>
-              음성 인식, 요약, 번역 기능을 사용하려면 외부 서비스의 API 키가 필요합니다.
+              음성 인식, 요약, 번역 요청이 이 주소의 서버를 통해 처리됩니다.
             </Text>
 
-            <Text style={[styles.label, { color: theme.text }]}>AssemblyAI API Key</Text>
+            <Text style={[styles.label, { color: theme.text }]}>백엔드 서버 주소</Text>
             <Text style={[styles.sublabel, { color: theme.border }]}>
-              음성 인식 및 화자 구분에 사용됩니다.
+              로컬 테스트: http://localhost:3000{'\n'}
+              배포 후: https://your-app.up.railway.app
             </Text>
             <TextInput
               style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
-              value={assemblyKey}
-              onChangeText={setAssemblyKey}
-              placeholder="AssemblyAI API Key 입력"
+              value={backendUrl}
+              onChangeText={setBackendUrlState}
+              placeholder="http://localhost:3000"
               placeholderTextColor={theme.border}
-              secureTextEntry
               autoCapitalize="none"
               autoCorrect={false}
+              keyboardType="url"
             />
 
-            <Text style={[styles.label, { color: theme.text }]}>OpenAI API Key</Text>
+            <Text style={[styles.label, { color: theme.text }]}>앱 시크릿 키</Text>
             <Text style={[styles.sublabel, { color: theme.border }]}>
-              강의 내용 요약 및 번역에 사용됩니다.
+              서버의 APP_SECRET 값과 동일하게 입력하세요.
             </Text>
             <TextInput
               style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
-              value={openaiKey}
-              onChangeText={setOpenaiKey}
-              placeholder="OpenAI API Key 입력"
+              value={appSecret}
+              onChangeText={setAppSecretState}
+              placeholder="앱 시크릿 키 입력"
               placeholderTextColor={theme.border}
               secureTextEntry
               autoCapitalize="none"
@@ -93,7 +92,7 @@ export default function SettingsScreen() {
           <TouchableOpacity
             style={[styles.saveButton, { backgroundColor: theme.primary }]}
             onPress={handleSave}
-            accessibilityLabel="API 키 저장"
+            accessibilityLabel="설정 저장"
           >
             <Text style={styles.saveButtonText}>💾 저장</Text>
           </TouchableOpacity>
@@ -110,19 +109,14 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 12,
+    paddingTop: 40,
+    paddingBottom: 20,
   },
   title: {
-    fontSize: 20,
+    fontSize: 32,
     fontWeight: 'bold',
   },
   content: {
@@ -153,6 +147,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 4,
     marginBottom: 8,
+    lineHeight: 18,
   },
   input: {
     borderWidth: 1,

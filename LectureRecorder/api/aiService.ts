@@ -1,153 +1,147 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+/**
+ * aiService.ts
+ *
+ * All AI calls go through OUR backend only.
+ * No third-party API keys are stored here or on the device.
+ *
+ * Config stored in AsyncStorage:
+ *   backend_url  — e.g. http://localhost:3000  or  https://your-app.up.railway.app
+ *   app_secret   — matches APP_SECRET env var on the backend
+ */
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_KEYS = {
-  ASSEMBLYAI: 'assemblyai_key',
-  OPENAI: 'openai_key',
-};
+// ── Config helpers ────────────────────────────────────────────────────────────
 
-export async function getApiKey(service: 'assemblyai' | 'openai'): Promise<string> {
-  const key = await AsyncStorage.getItem(`${service}_api_key`);
-  return key ?? '';
+const BACKEND_URL_KEY = 'backend_url';
+const APP_SECRET_KEY = 'app_secret';
+const DEFAULT_BACKEND_URL = 'http://localhost:3000';
+
+export async function getBackendUrl(): Promise<string> {
+  const url = await AsyncStorage.getItem(BACKEND_URL_KEY);
+  return url?.trim() || DEFAULT_BACKEND_URL;
 }
 
-export async function setApiKey(service: 'assemblyai' | 'openai', key: string): Promise<void> {
-  await AsyncStorage.setItem(`${service}_api_key`, key);
+export async function setBackendUrl(url: string): Promise<void> {
+  await AsyncStorage.setItem(BACKEND_URL_KEY, url.trim());
 }
+
+export async function getAppSecret(): Promise<string> {
+  const secret = await AsyncStorage.getItem(APP_SECRET_KEY);
+  return secret?.trim() ?? '';
+}
+
+export async function setAppSecret(secret: string): Promise<void> {
+  await AsyncStorage.setItem(APP_SECRET_KEY, secret.trim());
+}
+
+async function buildHeaders(): Promise<Record<string, string>> {
+  return { 'x-app-key': await getAppSecret() };
+}
+
+// ── Polling config ────────────────────────────────────────────────────────────
+
+const POLL_INTERVAL_MS = 3000;
+const POLL_MAX_ATTEMPTS = 120; // 6-minute maximum wait
+
+// ── Exported API functions ────────────────────────────────────────────────────
+// These keep the exact same signatures as before so detail/[id].tsx is unchanged.
 
 /**
- * AssemblyAI를 통한 음성 인식 + 화자 구분
+ * Upload audio to backend → backend uploads to AssemblyAI → poll until done.
+ * Returns formatted transcript (with [화자 A] labels if available).
  */
 export async function transcribeAudio(audioUri: string): Promise<string> {
-  const apiKey = await getApiKey('assemblyai');
-  if (!apiKey) {
-    throw new Error('AssemblyAI API 키가 설정되지 않았습니다. 설정에서 API 키를 입력해 주세요.');
+  const baseUrl = await getBackendUrl();
+  const secret = await getAppSecret();
+
+  if (!secret) {
+    throw new Error('앱 시크릿 키가 설정되지 않았습니다. 설정 탭에서 입력해 주세요.');
   }
 
-  // Step 1: Upload audio file
-  const response = await fetch(audioUri);
-  const blob = await response.blob();
+  // Step 1: Upload audio as multipart/form-data to our backend
+  const formData = new FormData();
+  formData.append('audio', {
+    uri: audioUri,
+    type: 'audio/m4a',
+    name: 'audio.m4a',
+  } as unknown as Blob);
 
-  const uploadRes = await axios.post('https://api.assemblyai.com/v2/upload', blob, {
-    headers: {
-      authorization: apiKey,
-      'Content-Type': 'application/octet-stream',
-    },
-  });
-
-  const uploadUrl = uploadRes.data.upload_url;
-
-  // Step 2: Start transcription with speaker diarization
-  const transcriptRes = await axios.post(
-    'https://api.assemblyai.com/v2/transcript',
+  const uploadRes = await axios.post<{ jobId: string }>(
+    `${baseUrl}/api/transcribe`,
+    formData,
     {
-      audio_url: uploadUrl,
-      speaker_labels: true,       // 화자 구분 활성화
-      language_code: 'ko',        // 한국어 설정
-    },
-    {
-      headers: { authorization: apiKey },
+      headers: {
+        'x-app-key': secret,
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 120_000, // 2 min — large files take time
     }
   );
 
-  const transcriptId = transcriptRes.data.id;
+  const { jobId } = uploadRes.data;
+  if (!jobId) throw new Error('음성 인식 작업 ID를 받지 못했습니다.');
 
-  // Step 3: Poll for completion
-  let result = transcriptRes.data;
-  while (result.status !== 'completed' && result.status !== 'error') {
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    const pollingRes = await axios.get(
-      `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
-      { headers: { authorization: apiKey } }
-    );
-    result = pollingRes.data;
+  // Step 2: Poll our backend (not AssemblyAI directly)
+  const headers = await buildHeaders();
+  for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
+    await new Promise<void>((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+
+    const pollRes = await axios.get<{
+      status: 'processing' | 'completed' | 'error';
+      transcript?: string;
+      error?: string;
+    }>(`${baseUrl}/api/transcribe/${jobId}`, { headers, timeout: 15_000 });
+
+    const { status, transcript, error } = pollRes.data;
+
+    if (status === 'completed' && transcript) return transcript;
+    if (status === 'error') throw new Error('음성 인식 실패: ' + (error ?? '알 수 없는 오류'));
+    // status === 'processing' → loop
   }
 
-  if (result.status === 'error') {
-    throw new Error('음성 인식에 실패했습니다: ' + result.error);
-  }
-
-  // Format with speaker labels
-  if (result.utterances && result.utterances.length > 0) {
-    return result.utterances
-      .map((u: any) => `[화자 ${u.speaker}] ${u.text}`)
-      .join('\n\n');
-  }
-
-  return result.text || '텍스트를 인식할 수 없습니다.';
+  throw new Error('음성 인식 시간이 초과되었습니다. 더 짧은 녹음을 시도해 주세요.');
 }
 
 /**
- * OpenAI GPT를 통한 텍스트 요약
+ * Send transcript text to backend → backend calls OpenAI → return summary.
  */
 export async function summarizeText(text: string): Promise<string> {
-  const apiKey = await getApiKey('openai');
-  if (!apiKey) {
-    throw new Error('OpenAI API 키가 설정되지 않았습니다. 설정에서 API 키를 입력해 주세요.');
+  const baseUrl = await getBackendUrl();
+  const headers = await buildHeaders();
+
+  if (!headers['x-app-key']) {
+    throw new Error('앱 시크릿 키가 설정되지 않았습니다. 설정 탭에서 입력해 주세요.');
   }
 
-  const res = await axios.post(
-    'https://api.openai.com/v1/chat/completions',
-    {
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content:
-            '당신은 강의 내용을 정리해주는 전문가입니다. 강의 녹취록을 받으면 아래 형식으로 정리해 주세요:\n\n## 핵심 요약\n핵심 내용을 3~5줄로 요약\n\n## 주요 내용\n- 불릿 포인트로 정리\n\n## 키워드\n중요 키워드 나열',
-        },
-        {
-          role: 'user',
-          content: `다음 강의 녹취록을 요약해 주세요:\n\n${text}`,
-        },
-      ],
-      temperature: 0.3,
-      max_tokens: 2000,
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    }
+  const res = await axios.post<{ summary: string }>(
+    `${baseUrl}/api/summarize`,
+    { text },
+    { headers, timeout: 90_000 }
   );
 
-  return res.data.choices[0].message.content;
+  return res.data.summary;
 }
 
 /**
- * OpenAI GPT를 통한 번역 (한국어 → 영어 / 영어 → 한국어)
+ * Send transcript text to backend → backend calls OpenAI → return translation.
  */
-export async function translateText(text: string, targetLang: string = 'English'): Promise<string> {
-  const apiKey = await getApiKey('openai');
-  if (!apiKey) {
-    throw new Error('OpenAI API 키가 설정되지 않았습니다. 설정에서 API 키를 입력해 주세요.');
+export async function translateText(
+  text: string,
+  targetLang: string = 'English'
+): Promise<string> {
+  const baseUrl = await getBackendUrl();
+  const headers = await buildHeaders();
+
+  if (!headers['x-app-key']) {
+    throw new Error('앱 시크릿 키가 설정되지 않았습니다. 설정 탭에서 입력해 주세요.');
   }
 
-  const res = await axios.post(
-    'https://api.openai.com/v1/chat/completions',
-    {
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: `You are a professional translator. Translate the following text to ${targetLang}. If the source is Korean, translate to English. If it's in English, translate to Korean. Keep the speaker labels if present. Provide only the translation without explanation.`,
-        },
-        {
-          role: 'user',
-          content: text,
-        },
-      ],
-      temperature: 0.3,
-      max_tokens: 4000,
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    }
+  const res = await axios.post<{ translation: string }>(
+    `${baseUrl}/api/translate`,
+    { text, targetLang },
+    { headers, timeout: 90_000 }
   );
 
-  return res.data.choices[0].message.content;
+  return res.data.translation;
 }
