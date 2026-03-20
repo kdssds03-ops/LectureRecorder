@@ -20,6 +20,28 @@ import { transcribeAudio, summarizeText, translateText } from '@/api/aiService';
 
 type TabType = 'transcript' | 'summary' | 'translation';
 
+/**
+ * Classify axios errors into user-facing message categories.
+ * - No response (network down / timeout) → 'network'
+ * - 401 / 403                            → 'auth'
+ * - 500+                                 → 'server'
+ * - Anything else                        → 'unknown'
+ */
+function classifyApiError(error: any): 'network' | 'auth' | 'server' | 'unknown' {
+  if (!error.response) return 'network';            // no response = unreachable / timeout
+  const status: number = error.response.status;
+  if (status === 401 || status === 403) return 'auth';
+  if (status >= 500) return 'server';
+  return 'unknown';
+}
+
+const API_ERROR_MESSAGES: Record<ReturnType<typeof classifyApiError>, string> = {
+  network: '네트워크 연결을 확인하고 다시 시도해 주세요.',
+  auth: '앱 키 또는 백엔드 주소가 올바르지 않습니다. 설정을 확인해 주세요.',
+  server: '서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',
+  unknown: '오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',
+};
+
 export default function DetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -100,13 +122,7 @@ export default function DetailScreen() {
       const result = await transcribeAudio(recording.uri);
       updateRecording(recording.id, { transcript: result });
     } catch (error: any) {
-      const isNetwork = error.code === 'ECONNABORTED' || error.message?.includes('시간이 초과');
-      Alert.alert(
-        '음성 인식 실패',
-        isNetwork
-          ? '네트워크 연결을 확인하고 다시 시도해 주세요.'
-          : '음성 인식에 실패했습니다. 설정에서 백엔드 주소와 암 키를 확인해 주세요.'
-      );
+      Alert.alert('음성 인식 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
     } finally {
       setIsProcessing(false);
     }
@@ -122,13 +138,7 @@ export default function DetailScreen() {
       const result = await summarizeText(recording.transcript);
       updateRecording(recording.id, { summary: result });
     } catch (error: any) {
-      const isNetwork = error.code === 'ECONNABORTED' || error.message?.includes('시간이 초과');
-      Alert.alert(
-        '요약 실패',
-        isNetwork
-          ? '네트워크 연결을 확인하고 다시 시도해 주세요.'
-          : '요약을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.'
-      );
+      Alert.alert('요약 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
     } finally {
       setIsProcessing(false);
     }
@@ -144,13 +154,7 @@ export default function DetailScreen() {
       const result = await translateText(recording.transcript);
       updateRecording(recording.id, { translation: result });
     } catch (error: any) {
-      const isNetwork = error.code === 'ECONNABORTED' || error.message?.includes('시간이 초과');
-      Alert.alert(
-        '번역 실패',
-        isNetwork
-          ? '네트워크 연결을 확인하고 다시 시도해 주세요.'
-          : '번역을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.'
-      );
+      Alert.alert('번역 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
     } finally {
       setIsProcessing(false);
     }
@@ -320,8 +324,8 @@ export default function DetailScreen() {
               {activeTab === 'transcript'
                 ? '아직 텍스트로 변환되지 않았습니다.'
                 : activeTab === 'summary'
-                ? '아직 요약이 생성되지 않았습니다.'
-                : '아직 번역이 완료되지 않았습니다.'}
+                  ? '아직 요약이 생성되지 않았습니다.'
+                  : '아직 번역이 완료되지 않았습니다.'}
             </Text>
             <TouchableOpacity
               style={[styles.actionButton, { backgroundColor: theme.primary }]}
