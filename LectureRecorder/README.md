@@ -1,28 +1,54 @@
-LectureRecorder
-강의 내용을 더 효율적으로 기록하고 활용할 수 있도록 만든 모바일 앱입니다.
-이 앱은 강의 음성을 녹음하고, 녹음 파일을 텍스트로 변환한 뒤, 요약과 번역 기능까지 제공하는 것을 목표로 합니다.
+# 🎙️ LectureRecorder
 
-소개
-LectureRecorder는 수업이나 발표 내용을 단순히 녹음하는 데서 끝나지 않고,
-녹음한 음성을 텍스트로 변환하고 핵심 내용을 정리해 학습에 활용할 수 있도록 돕는 앱입니다.
+> 강의 내용을 녹음하고, 텍스트로 변환하고, 요약과 번역까지 도와주는 모바일 앱
 
-이 프로젝트는 Expo + React Native + TypeScript 기반으로 개발되었으며,
-AI 기능을 통해 음성 인식(STT), 요약, 번역 기능을 제공합니다.
+---
 
-주요 기능
-강의 음성 녹음
-녹음 파일 저장 및 목록 확인
-녹음 파일 재생
-음성 텍스트 변환(STT)
-강의 내용 요약
-번역 기능
-설정 화면에서 API Key 관리
-기술 스택
-Frontend: React Native, Expo
-Language: TypeScript
-AI / API: AssemblyAI, OpenAI API
-Etc: Expo Router
-프로젝트 구조
+## 📌 Overview
+
+**LectureRecorder**는 강의나 발표 내용을 더 효율적으로 기록하고 복습할 수 있도록 만든 앱입니다.
+
+단순히 음성을 녹음하는 데서 끝나는 것이 아니라,
+
+- 음성을 텍스트로 변환하고
+- 핵심 내용을 요약하고
+- 필요한 경우 번역까지 할 수 있도록
+
+학습 효율을 높이는 것을 목표로 합니다.
+
+---
+
+## ✨ Features
+
+- 🎤 강의 음성 녹음
+- 📂 녹음 파일 저장 및 목록 확인
+- ▶️ 녹음 파일 재생
+- 📝 음성 텍스트 변환 (STT)
+- 📌 강의 내용 요약
+- 🌍 번역 기능
+- ⚙️ API Key 설정 관리
+
+---
+
+## 🛠 Tech Stack
+
+### Frontend
+- React Native
+- Expo
+- Expo Router
+
+### Language
+- TypeScript
+
+### AI / API
+- AssemblyAI
+- OpenAI API
+
+---
+
+## 📁 Project Structure
+
+```bash
 LectureRecorder/
 ├─ app/                # 앱 화면 및 라우팅
 ├─ components/         # 공통 UI 컴포넌트
