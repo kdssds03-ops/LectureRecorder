@@ -1,50 +1,34 @@
-# Welcome to your Expo app 👋
+LectureRecorder
+강의 내용을 더 효율적으로 기록하고 활용할 수 있도록 만든 모바일 앱입니다.
+이 앱은 강의 음성을 녹음하고, 녹음 파일을 텍스트로 변환한 뒤, 요약과 번역 기능까지 제공하는 것을 목표로 합니다.
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+소개
+LectureRecorder는 수업이나 발표 내용을 단순히 녹음하는 데서 끝나지 않고,
+녹음한 음성을 텍스트로 변환하고 핵심 내용을 정리해 학습에 활용할 수 있도록 돕는 앱입니다.
 
-## Get started
+이 프로젝트는 Expo + React Native + TypeScript 기반으로 개발되었으며,
+AI 기능을 통해 음성 인식(STT), 요약, 번역 기능을 제공합니다.
 
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+주요 기능
+강의 음성 녹음
+녹음 파일 저장 및 목록 확인
+녹음 파일 재생
+음성 텍스트 변환(STT)
+강의 내용 요약
+번역 기능
+설정 화면에서 API Key 관리
+기술 스택
+Frontend: React Native, Expo
+Language: TypeScript
+AI / API: AssemblyAI, OpenAI API
+Etc: Expo Router
+프로젝트 구조
+LectureRecorder/
+├─ app/                # 앱 화면 및 라우팅
+├─ components/         # 공통 UI 컴포넌트
+├─ assets/             # 이미지 및 정적 리소스
+├─ api/                # AI 서비스 API 관련 코드
+├─ hooks/              # 커스텀 훅
+├─ constants/          # 상수 및 테마
+├─ package.json
+└─ README.md
