@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, Alert } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, Alert, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
@@ -38,7 +38,17 @@ export default function RecordScreen() {
     try {
       const permission = await Audio.requestPermissionsAsync();
       if (permission.status !== 'granted') {
-        Alert.alert('권한 필요', '마이크 접근 권한이 필요합니다.');
+        Alert.alert(
+          '마이크 권한 필요',
+          '강의를 녹음하려면 마이크 접근 권한이 필요합니다.',
+          [
+            { text: '취소', style: 'cancel' },
+            {
+              text: '설정 열기',
+              onPress: () => Linking.openSettings(),
+            },
+          ]
+        );
         return;
       }
       await Audio.setAudioModeAsync({
@@ -52,6 +62,10 @@ export default function RecordScreen() {
       setDuration(0);
     } catch (err) {
       console.error('Failed to start recording', err);
+      Alert.alert(
+        '녹음 시작 실패',
+        '녹음을 시작할 수 없습니다. 다른 앱이 마이크를 사용 중일 수 있습니다. 잠시 후 다시 시도해 주세요.'
+      );
     }
   };
 
@@ -74,17 +88,49 @@ export default function RecordScreen() {
         };
         addRecording(newRecording);
         router.back();
+      } else {
+        Alert.alert('저장 실패', '녹음 파일을 저장하지 못했습니다. 다시 시도해 주세요.');
       }
     } catch (error) {
       console.error('Failed to stop recording', error);
+      Alert.alert('녹음 중지 실패', '녹음을 저장하는 중 오류가 발생했습니다. 다시 시도해 주세요.');
     }
     setRecording(null);
+  };
+
+  const handleClose = () => {
+    if (isRecording) {
+      Alert.alert(
+        '녹음 취소',
+        '녹음을 취소하면 현재 녹음 내용이 저장되지 않습니다.',
+        [
+          { text: '계속 녹음', style: 'cancel' },
+          {
+            text: '취소하기',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await recording?.stopAndUnloadAsync();
+                await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+              } catch (_) {
+                // best-effort cleanup — mic must be released
+              }
+              setRecording(null);
+              setIsRecording(false);
+              router.back();
+            },
+          },
+        ]
+      );
+    } else {
+      router.back();
+    }
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} accessibilityLabel="뒤로 가기">
+        <TouchableOpacity onPress={handleClose} accessibilityLabel="뒤로 가기">
           <MaterialIcons name="close" size={32} color={theme.text} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: theme.text }]}>새 강의 녹음</Text>

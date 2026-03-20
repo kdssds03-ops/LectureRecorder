@@ -85,6 +85,7 @@ export default function DetailScreen() {
       }
     } catch (error) {
       console.error('Playback error', error);
+      Alert.alert('재생 오류', '오디오를 재생할 수 없습니다. 파일이 손상되었거나 지원되지 않는 형식일 수 있습니다.');
     }
   };
 
@@ -99,7 +100,13 @@ export default function DetailScreen() {
       const result = await transcribeAudio(recording.uri);
       updateRecording(recording.id, { transcript: result });
     } catch (error: any) {
-      Alert.alert('오류', error.message || '음성 인식에 실패했습니다. API 키를 확인해 주세요.');
+      const isNetwork = error.code === 'ECONNABORTED' || error.message?.includes('시간이 초과');
+      Alert.alert(
+        '음성 인식 실패',
+        isNetwork
+          ? '네트워크 연결을 확인하고 다시 시도해 주세요.'
+          : '음성 인식에 실패했습니다. 설정에서 백엔드 주소와 암 키를 확인해 주세요.'
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -115,7 +122,13 @@ export default function DetailScreen() {
       const result = await summarizeText(recording.transcript);
       updateRecording(recording.id, { summary: result });
     } catch (error: any) {
-      Alert.alert('오류', error.message || '요약에 실패했습니다.');
+      const isNetwork = error.code === 'ECONNABORTED' || error.message?.includes('시간이 초과');
+      Alert.alert(
+        '요약 실패',
+        isNetwork
+          ? '네트워크 연결을 확인하고 다시 시도해 주세요.'
+          : '요약을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -131,7 +144,13 @@ export default function DetailScreen() {
       const result = await translateText(recording.transcript);
       updateRecording(recording.id, { translation: result });
     } catch (error: any) {
-      Alert.alert('오류', error.message || '번역에 실패했습니다.');
+      const isNetwork = error.code === 'ECONNABORTED' || error.message?.includes('시간이 초과');
+      Alert.alert(
+        '번역 실패',
+        isNetwork
+          ? '네트워크 연결을 확인하고 다시 시도해 주세요.'
+          : '번역을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+      );
     } finally {
       setIsProcessing(false);
     }
