@@ -14,6 +14,7 @@ import {
   Modal,
   Switch,
 } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -215,6 +216,24 @@ export default function SettingsScreen() {
     setTapCount(0);
   };
 
+  const handlePrivacyPolicy = async () => {
+    await WebBrowser.openBrowserAsync('https://your-notion-link-or-gist.com', {
+      toolbarColor: (theme as any).oliveDeep || '#C2D68F',
+      controlsColor: theme.primary,
+      enableBarCollapsing: true,
+      showTitle: true,
+    });
+  };
+
+  const handleSupport = () => {
+    const email = 'support@lecturerecorder.com';
+    const subject = '[문의] Lecture Recorder 이용 관련 문의드립니다';
+    const body = '안녕하세요, 아래에 문의 내용을 상세히 적어주시면 신속히 답변드리겠습니다.\n\n1. 기기 모델명:\n2. OS 버전:\n3. 문의 내용:';
+    
+    const url = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    Linking.openURL(url);
+  };
+
   if (!_hasHydrated) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background, justifyContent: 'center' }]}>
@@ -319,13 +338,13 @@ export default function SettingsScreen() {
             icon="privacy-tip"
             label="개인정보 처리방침"
             theme={theme}
-            onPress={() => Linking.openURL('https://example.com/privacy')}
+            onPress={handlePrivacyPolicy}
           />
           <SettingRow
             icon="help-outline"
             label="도움말 및 지원"
             theme={theme}
-            onPress={() => Linking.openURL('https://example.com/support')}
+            onPress={handleSupport}
           />
 
           {/* ── App Info ── */}
@@ -381,8 +400,11 @@ export default function SettingsScreen() {
             </View>
           )}
 
+          <Text style={[styles.versionText, { color: (theme as any).oliveDeep || '#C2D68F' }]}>
+            v1.0.0
+          </Text>
           <Text style={[styles.footer, { color: theme.border }]}>
-            © 2024 LectureRecorder. All rights reserved.
+            © {new Date().getFullYear()} LectureRecorder. All rights reserved.
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -527,8 +549,15 @@ const styles = StyleSheet.create({
   footer: {
     textAlign: 'center',
     fontSize: 12,
-    marginTop: 40,
+    marginTop: 8,
     marginBottom: 20,
+  },
+  versionText: {
+    textAlign: 'center',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 40,
+    opacity: 0.6,
   },
   // ── Selection Modal
   modalOverlay: {

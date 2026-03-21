@@ -17,7 +17,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { useRecordingStore, RecordingMeta } from '@/store/useRecordingStore';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { transcribeAudio, summarizeText, translateText } from '@/api/aiService';
+import { LinearGradient } from 'expo-linear-gradient';
+import { transcribeAudio, translateText } from '@/api/aiService';
 
 type TabType = 'transcript' | 'summary' | 'translation';
 
@@ -48,7 +49,7 @@ export default function DetailScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  const { recordings, updateRecording } = useRecordingStore();
+  const { recordings, updateRecording, fetchSummary } = useRecordingStore();
 
   const recording = recordings.find((r) => r.id === id);
 
@@ -150,19 +151,12 @@ export default function DetailScreen() {
       Alert.alert('알림', '먼저 음성을 텍스트로 변환해 주세요.');
       return;
     }
-    setIsProcessing(true);
-    setProcessingStatus('요약 생성 중...');
     try {
-      const { summary, suggestedName } = await summarizeText(recording.transcript);
-      const updates: Partial<RecordingMeta> = { summary };
-      if (suggestedName && suggestedName.trim() !== '') {
-        updates.name = suggestedName;
-      }
-      updateRecording(recording.id, updates);
+      setProcessingStatus('요약 생성 중...');
+      await fetchSummary(recording.id);
     } catch (error: any) {
       Alert.alert('요약 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
     } finally {
-      setIsProcessing(false);
       setProcessingStatus('');
     }
   }, [recording]);
@@ -314,6 +308,31 @@ export default function DetailScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Premium AI Summary Button */}
+      {recording.transcript && !recording.summary && (
+        <TouchableOpacity
+          onPress={handleSummarize}
+          disabled={recording.isSummarizing}
+          style={styles.aiButtonWrapper}
+        >
+          <LinearGradient
+            colors={[(theme as any).oliveLight || '#DDEEAA', (theme as any).oliveDeep || '#C2D68F']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.aiButton}
+          >
+            {recording.isSummarizing ? (
+              <ActivityIndicator color={(theme as any).textOnPrimary || '#121212'} />
+            ) : (
+              <>
+                <MaterialIcons name="auto-awesome" size={20} color={(theme as any).textOnPrimary || '#121212'} />
+                <Text style={[styles.aiButtonText, { color: (theme as any).textOnPrimary || '#121212' }]}>AI 요약 생성하기</Text>
+              </>
+            )}
+          </LinearGradient>
+        </TouchableOpacity>
+      )}
+
       <View style={[styles.tabContainer, { borderBottomColor: theme.border }]}>
         {([
           { key: 'transcript' as TabType, label: '📝 기록', icon: 'description' },
@@ -375,7 +394,7 @@ export default function DetailScreen() {
         )}
       </ScrollView>
       {/* AI Processing overlay */}
-      <Modal visible={isProcessing} transparent animationType="fade">
+      <Modal visible={isProcessing || recording.isSummarizing} transparent animationType="fade">
         <View style={styles.overlayBackdrop}>
           <View style={[styles.overlayCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <ActivityIndicator size="large" color={theme.primary} />
@@ -554,5 +573,27 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     textAlign: 'center',
+  },
+  aiButtonWrapper: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    borderRadius: 14,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  aiButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    gap: 8,
+  },
+  aiButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

@@ -18,6 +18,7 @@ export interface RecordingMeta {
   transcript?: string;
   summary?: string;
   translation?: string;
+  isSummarizing?: boolean;
 }
 
 interface RecordingStore {
@@ -27,6 +28,7 @@ interface RecordingStore {
   updateRecording: (id: string, data: Partial<RecordingMeta>) => void;
   moveToFolder: (recordingId: string, folderId: string | null) => void;
   loadRecordings: () => Promise<void>;
+  fetchSummary: (recordingId: string) => Promise<void>;
 }
 
 export const useRecordingStore = create<RecordingStore>((set, get) => ({
@@ -76,5 +78,34 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
     set({
       recordings: recData ? JSON.parse(recData) : [],
     });
+  },
+
+  fetchSummary: async (recordingId: string) => {
+    const { recordings, updateRecording } = get();
+    const recording = recordings.find(r => r.id === recordingId);
+    
+    if (!recording || !recording.transcript) return;
+
+    // Set loading state
+    updateRecording(recordingId, { isSummarizing: true });
+
+    try {
+      const { summarizeText } = require('@/api/aiService');
+      const { summary, suggestedName } = await summarizeText(recording.transcript);
+      
+      const updates: Partial<RecordingMeta> = { 
+        summary, 
+        isSummarizing: false 
+      };
+      
+      if (suggestedName && suggestedName.trim() !== '') {
+        updates.name = suggestedName;
+      }
+      
+      updateRecording(recordingId, updates);
+    } catch (error) {
+      updateRecording(recordingId, { isSummarizing: false });
+      throw error;
+    }
   },
 }));
