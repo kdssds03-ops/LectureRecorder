@@ -1,44 +1,70 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
   StyleSheet,
   Text,
   View,
-  TouchableOpacity,
   SafeAreaView,
-  TextInput,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
+  TouchableOpacity,
+  Linking,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { getBackendUrl, setBackendUrl, getAppSecret, setAppSecret } from '@/api/aiService';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface SettingRowProps {
+  icon: keyof typeof MaterialIcons.glyphMap;
+  label: string;
+  value?: string;
+  badge?: string;
+  theme: (typeof Colors)['light'];
+  onPress?: () => void;
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
+function SectionHeader({ title, theme }: { title: string; theme: (typeof Colors)['light'] }) {
+  return (
+    <Text style={[styles.sectionHeader, { color: theme.primary }]}>{title}</Text>
+  );
+}
+
+function SettingRow({ icon, label, value, badge, theme, onPress }: SettingRowProps) {
+  const content = (
+    <View style={[styles.row, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      <MaterialIcons name={icon} size={22} color={theme.primary} style={styles.rowIcon} />
+      <Text style={[styles.rowLabel, { color: theme.text }]}>{label}</Text>
+      <View style={styles.rowRight}>
+        {badge ? (
+          <View style={[styles.badge, { backgroundColor: theme.border }]}>
+            <Text style={[styles.badgeText, { color: theme.text }]}>{badge}</Text>
+          </View>
+        ) : value ? (
+          <Text style={[styles.rowValue, { color: theme.border }]}>{value}</Text>
+        ) : onPress ? (
+          <MaterialIcons name="chevron-right" size={20} color={theme.border} />
+        ) : null}
+      </View>
+    </View>
+  );
+
+  if (onPress) {
+    return (
+      <TouchableOpacity onPress={onPress} accessibilityRole="button">
+        {content}
+      </TouchableOpacity>
+    );
+  }
+  return content;
+}
+
+// ── Main Screen ────────────────────────────────────────────────────────────────
 
 export default function SettingsScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-
-  const [backendUrl, setBackendUrlState] = useState('');
-  const [appSecret, setAppSecretState] = useState('');
-
-  useEffect(() => {
-    (async () => {
-      setBackendUrlState(await getBackendUrl());
-      setAppSecretState(await getAppSecret());
-    })();
-  }, []);
-
-  const handleSave = async () => {
-    if (!backendUrl.trim().startsWith('http')) {
-      Alert.alert('입력 오류', '백엔드 URL은 http:// 또는 https://로 시작해야 합니다.');
-      return;
-    }
-    await setBackendUrl(backendUrl);
-    await setAppSecret(appSecret);
-    Alert.alert('저장 완료', '설정이 저장되었습니다.');
-  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -46,74 +72,97 @@ export default function SettingsScreen() {
         <Text style={[styles.title, { color: theme.text }]}>설정</Text>
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView contentContainerStyle={styles.content}>
-          <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>🔗 백엔드 서버 설정</Text>
-            <Text style={[styles.description, { color: theme.border }]}>
-              음성 인식, 요약, 번역 요청이 이 주소의 서버를 통해 처리됩니다.
-            </Text>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-            <Text style={[styles.label, { color: theme.text }]}>백엔드 서버 주소</Text>
-            <Text style={[styles.sublabel, { color: theme.border }]}>
-              로컬 테스트: http://localhost:3000{'\n'}
-              배포 후: https://your-app.up.railway.app
-            </Text>
-            <TextInput
-              style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
-              value={backendUrl}
-              onChangeText={setBackendUrlState}
-              placeholder="http://localhost:3000"
-              placeholderTextColor={theme.border}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-            />
+        {/* ── Recording Preferences ── */}
+        <SectionHeader title="🎙️ 녹음 환경설정" theme={theme} />
+        <SettingRow
+          icon="language"
+          label="음성 인식 언어"
+          value="한국어"
+          theme={theme}
+          badge="출시 예정"
+        />
+        <SettingRow
+          icon="record-voice-over"
+          label="화자 구분"
+          value="자동"
+          theme={theme}
+          badge="출시 예정"
+        />
+        <SettingRow
+          icon="graphic-eq"
+          label="오디오 품질"
+          value="고품질"
+          theme={theme}
+          badge="출시 예정"
+        />
 
-            <Text style={[styles.label, { color: theme.text }]}>앱 시크릿 키</Text>
-            <Text style={[styles.sublabel, { color: theme.border }]}>
-              서버의 APP_SECRET 값과 동일하게 입력하세요.
-            </Text>
-            <TextInput
-              style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
-              value={appSecret}
-              onChangeText={setAppSecretState}
-              placeholder="앱 시크릿 키 입력"
-              placeholderTextColor={theme.border}
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
+        {/* ── Language Preferences ── */}
+        <SectionHeader title="🌐 언어 환경설정" theme={theme} />
+        <SettingRow
+          icon="summarize"
+          label="요약 출력 언어"
+          value="한국어"
+          theme={theme}
+          badge="출시 예정"
+        />
+        <SettingRow
+          icon="translate"
+          label="기본 번역 언어"
+          value="영어"
+          theme={theme}
+          badge="출시 예정"
+        />
 
-          <TouchableOpacity
-            style={[styles.saveButton, { backgroundColor: theme.primary }]}
-            onPress={handleSave}
-            accessibilityLabel="설정 저장"
-          >
-            <Text style={styles.saveButtonText}>💾 저장</Text>
-          </TouchableOpacity>
+        {/* ── Privacy & Help ── */}
+        <SectionHeader title="🔒 개인정보 및 도움말" theme={theme} />
+        <SettingRow
+          icon="privacy-tip"
+          label="개인정보 처리방침"
+          theme={theme}
+          onPress={() => Linking.openURL('https://example.com/privacy')}
+        />
+        <SettingRow
+          icon="help-outline"
+          label="도움말 및 지원"
+          theme={theme}
+          onPress={() => Linking.openURL('https://example.com/support')}
+        />
 
-          <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border, marginTop: 24 }]}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>ℹ️ 앱 정보</Text>
-            <Text style={[styles.infoText, { color: theme.text }]}>LectureRecorder v1.0.0</Text>
-            <Text style={[styles.infoText, { color: theme.border }]}>강의 녹음 · 화자 구분 · 요약 · 번역</Text>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        {/* ── App Info ── */}
+        <SectionHeader title="ℹ️ 앱 정보" theme={theme} />
+        <SettingRow
+          icon="info-outline"
+          label="버전"
+          value="1.0.0"
+          theme={theme}
+        />
+        <SettingRow
+          icon="mic"
+          label="LectureRecorder"
+          value="강의 녹음 · 화자 구분 · 요약 · 번역"
+          theme={theme}
+        />
+
+        <Text style={[styles.footer, { color: theme.border }]}>
+          © 2024 LectureRecorder. All rights reserved.
+        </Text>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
+// ── Styles ─────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: {
+    flex: 1,
+  },
   header: {
     paddingHorizontal: 20,
     paddingTop: 40,
-    paddingBottom: 20,
+    paddingBottom: 16,
   },
   title: {
     fontSize: 32,
@@ -121,53 +170,54 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingBottom: 48,
   },
-  section: {
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  description: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 16,
-  },
-  sublabel: {
+  sectionHeader: {
     fontSize: 13,
-    marginTop: 4,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginTop: 28,
     marginBottom: 8,
-    lineHeight: 18,
+    marginLeft: 4,
   },
-  input: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
-  },
-  saveButton: {
-    marginTop: 20,
-    paddingVertical: 16,
-    borderRadius: 12,
+  row: {
+    flexDirection: 'row',
     alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    marginBottom: 8,
   },
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: 'bold',
+  rowIcon: {
+    marginRight: 12,
   },
-  infoText: {
+  rowLabel: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  rowRight: {
+    alignItems: 'flex-end',
+  },
+  rowValue: {
     fontSize: 14,
-    marginTop: 4,
+    maxWidth: 160,
+    textAlign: 'right',
+  },
+  badge: {
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  footer: {
+    textAlign: 'center',
+    fontSize: 12,
+    marginTop: 40,
   },
 });
