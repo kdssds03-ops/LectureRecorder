@@ -40,9 +40,22 @@ export default function HomeScreen() {
         contentContainerStyle={styles.listContainer}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <MaterialIcons name="library-music" size={64} color={theme.border} />
-            <Text style={[styles.emptyText, { color: theme.text }]}>아직 녹음된 강의가 없습니다.</Text>
-            <Text style={[styles.emptySubText, { color: theme.border }]}>하단의 버튼을 눌러 녹음을 시작하세요.</Text>
+            <View style={[styles.emptyIconWrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <MaterialIcons name="mic-none" size={52} color={theme.primary} />
+            </View>
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>첫 강의 녹음을 시작해 보세요</Text>
+            <Text style={[styles.emptySubText, { color: theme.border }]}>
+              녹음한 강의는 자동으로 텍스트로 변환되고{'\n'}요약 및 번역까지 한 번에 확인할 수 있어요.
+            </Text>
+            <TouchableOpacity
+              style={[styles.emptyButton, { backgroundColor: theme.primary }]}
+              onPress={() => router.push('/record')}
+              accessibilityLabel="녹음 시작"
+              accessibilityRole="button"
+            >
+              <MaterialIcons name="mic" size={20} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.emptyButtonText}>녹음 시작하기</Text>
+            </TouchableOpacity>
           </View>
         }
         renderItem={({ item }) => (
@@ -122,15 +135,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 60,
+    paddingHorizontal: 32,
   },
-  emptyText: {
+  emptyIconWrap: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  emptyTitle: {
     fontSize: 20,
-    fontWeight: '600',
-    marginTop: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 10,
   },
   emptySubText: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    marginBottom: 28,
+  },
+  emptyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 13,
+    borderRadius: 12,
+  },
+  emptyButtonText: {
+    color: '#FFFFFF',
     fontSize: 16,
-    marginTop: 8,
+    fontWeight: '600',
   },
   card: {
     padding: 20,

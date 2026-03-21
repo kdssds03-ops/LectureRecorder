@@ -8,6 +8,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Modal,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -53,11 +54,24 @@ export default function DetailScreen() {
 
   const [activeTab, setActiveTab] = useState<TabType>('transcript');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState('');
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackPosition, setPlaybackPosition] = useState(0);
   const [playbackDuration, setPlaybackDuration] = useState(0);
-  const [fileExists, setFileExists] = useState<boolean | null>(null); // null = checking
+  const [fileExists, setFileExists] = useState<boolean | null>(null);
+  const [playbackRate, setPlaybackRate] = useState<1.0 | 1.2 | 1.5 | 2.0>(1.0);
+
+  const SPEED_STEPS: Array<1.0 | 1.2 | 1.5 | 2.0> = [1.0, 1.2, 1.5, 2.0];
+
+  const cycleSpeed = async () => {
+    const nextIdx = (SPEED_STEPS.indexOf(playbackRate) + 1) % SPEED_STEPS.length;
+    const nextRate = SPEED_STEPS[nextIdx];
+    setPlaybackRate(nextRate);
+    if (sound) {
+      await sound.setRateAsync(nextRate, true);
+    }
+  };
 
   // Check whether the audio file still exists on disk
   useEffect(() => {
@@ -118,13 +132,16 @@ export default function DetailScreen() {
       return;
     }
     setIsProcessing(true);
+    setProcessingStatus('오디오 업로드 중...');
     try {
       const result = await transcribeAudio(recording.uri);
+      setProcessingStatus('텍스트 변환 완료');
       updateRecording(recording.id, { transcript: result });
     } catch (error: any) {
       Alert.alert('음성 인식 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
     } finally {
       setIsProcessing(false);
+      setProcessingStatus('');
     }
   }, [recording, fileExists]);
 
@@ -134,6 +151,7 @@ export default function DetailScreen() {
       return;
     }
     setIsProcessing(true);
+    setProcessingStatus('요약 생성 중...');
     try {
       const result = await summarizeText(recording.transcript);
       updateRecording(recording.id, { summary: result });
@@ -141,6 +159,7 @@ export default function DetailScreen() {
       Alert.alert('요약 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
     } finally {
       setIsProcessing(false);
+      setProcessingStatus('');
     }
   }, [recording]);
 
@@ -150,6 +169,7 @@ export default function DetailScreen() {
       return;
     }
     setIsProcessing(true);
+    setProcessingStatus('번역 중...');
     try {
       const result = await translateText(recording.transcript);
       updateRecording(recording.id, { translation: result });
@@ -157,6 +177,7 @@ export default function DetailScreen() {
       Alert.alert('번역 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
     } finally {
       setIsProcessing(false);
+      setProcessingStatus('');
     }
   }, [recording]);
 
@@ -274,6 +295,14 @@ export default function DetailScreen() {
             <View style={[styles.progressFill, { width: `${progressWidth}%`, backgroundColor: theme.primary }]} />
           </View>
         </View>
+        <TouchableOpacity
+          onPress={cycleSpeed}
+          style={[styles.speedBadge, { backgroundColor: theme.background, borderColor: theme.border }]}
+          accessibilityLabel={`재생 속도 ${playbackRate}배속`}
+          accessibilityRole="button"
+        >
+          <Text style={[styles.speedText, { color: theme.primary }]}>{playbackRate.toFixed(1)}x</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Tabs */}
@@ -337,6 +366,18 @@ export default function DetailScreen() {
           </View>
         )}
       </ScrollView>
+      {/* AI Processing overlay */}
+      <Modal visible={isProcessing} transparent animationType="fade">
+        <View style={styles.overlayBackdrop}>
+          <View style={[styles.overlayCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <ActivityIndicator size="large" color={theme.primary} />
+            <Text style={[styles.overlayStatus, { color: theme.text }]}>
+              {processingStatus || '처리 중...'}
+            </Text>
+            <Text style={[styles.overlayHint, { color: theme.border }]}>잠시만 기다려 주세요</Text>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -421,6 +462,51 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 16,
     fontSize: 16,
+  },
+  // ── Speed badge
+  speedBadge: {
+    marginLeft: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  speedText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  // ── AI overlay
+  overlayBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  overlayCard: {
+    width: 220,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  overlayStatus: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 18,
+    textAlign: 'center',
+  },
+  overlayHint: {
+    fontSize: 13,
+    marginTop: 6,
+    textAlign: 'center',
   },
   contentText: {
     fontSize: 17,
