@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, Text, View, FlatList, TouchableOpacity, SafeAreaView, Alert } from 'react-native';
+import { StyleSheet, Text, View, FlatList, TouchableOpacity, SafeAreaView, Alert, Platform, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRecordingStore } from '@/store/useRecordingStore';
@@ -10,11 +10,34 @@ export default function HomeScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  const { recordings, loadRecordings, removeRecording } = useRecordingStore();
+  const { recordings, loadRecordings, removeRecording, folders, addFolder, deleteFolder } = useRecordingStore();
 
   useEffect(() => {
     loadRecordings();
   }, []);
+
+  const handleNewFolder = () => {
+    if (Platform.OS === 'ios') {
+      Alert.prompt(
+        '새 폴더',
+        '폴더 이름을 입력하세요',
+        (name) => { if (name?.trim()) addFolder(name); },
+        'plain-text',
+        '',
+        'default'
+      );
+    } else {
+      // Android: Alert.prompt is not available — a TextInput modal can be added in Part 2
+      Alert.alert('새 폴더', 'Android 폴더 생성은 다음 업데이트에서 지원됩니다.');
+    }
+  };
+
+  const handleDeleteFolder = (id: string, name: string) => {
+    Alert.alert('폴더 삭제', `"${name}" 폴더를 삭제할까요?`, [
+      { text: '취소', style: 'cancel' },
+      { text: '삭제', style: 'destructive', onPress: () => deleteFolder(id) },
+    ]);
+  };
 
   const formatDate = (timestamp: number) => {
     const d = new Date(timestamp);
@@ -32,7 +55,37 @@ export default function HomeScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
         <Text style={[styles.title, { color: theme.text }]}>내 강의 기록</Text>
+        <TouchableOpacity
+          onPress={handleNewFolder}
+          accessibilityLabel="새 폴더 만들기"
+          accessibilityRole="button"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <MaterialIcons name="create-new-folder" size={28} color={theme.primary} />
+        </TouchableOpacity>
       </View>
+
+      {/* Folder strip */}
+      {folders.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.folderStrip}
+        >
+          {folders.map((folder) => (
+            <TouchableOpacity
+              key={folder.id}
+              style={[styles.folderChip, { backgroundColor: theme.card, borderColor: theme.border }]}
+              onLongPress={() => handleDeleteFolder(folder.id, folder.name)}
+              accessibilityLabel={`${folder.name} 폴더`}
+              accessibilityHint="길게 누르면 삭제"
+            >
+              <MaterialIcons name="folder" size={16} color={theme.primary} style={{ marginRight: 5 }} />
+              <Text style={[styles.folderChipText, { color: theme.text }]}>{folder.name}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
 
       <FlatList
         data={recordings}
@@ -119,9 +172,29 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: 40,
-    paddingBottom: 20,
+    paddingBottom: 16,
+  },
+  folderStrip: {
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  folderChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  folderChipText: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   title: {
     fontSize: 32,

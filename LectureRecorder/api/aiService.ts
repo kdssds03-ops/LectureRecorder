@@ -154,9 +154,10 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
 }
 
 /**
- * Send transcript text to backend → backend calls OpenAI → return summary.
+ * Send transcript text to backend → backend calls OpenAI → return summary + suggested title.
+ * Returns { summary, suggestedName } where suggestedName is a concise title (≤20 chars).
  */
-export async function summarizeText(text: string): Promise<string> {
+export async function summarizeText(text: string): Promise<{ summary: string; suggestedName: string }> {
   const baseUrl = await getBackendUrl();
   const headers = await buildHeaders();
 
@@ -171,7 +172,11 @@ export async function summarizeText(text: string): Promise<string> {
   );
   assertStatus(res);
 
-  return (res.data as { summary: string }).summary;
+  const data = res.data as { summary: string; suggestedName?: string };
+  return {
+    summary: data.summary,
+    suggestedName: data.suggestedName ?? '',
+  };
 }
 
 /**

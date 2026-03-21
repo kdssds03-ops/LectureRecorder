@@ -153,8 +153,12 @@ export default function DetailScreen() {
     setIsProcessing(true);
     setProcessingStatus('요약 생성 중...');
     try {
-      const result = await summarizeText(recording.transcript);
-      updateRecording(recording.id, { summary: result });
+      const { summary, suggestedName } = await summarizeText(recording.transcript);
+      const updates: Partial<RecordingMeta> = { summary };
+      if (suggestedName && suggestedName.trim() !== '') {
+        updates.name = suggestedName;
+      }
+      updateRecording(recording.id, updates);
     } catch (error: any) {
       Alert.alert('요약 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
     } finally {
@@ -238,7 +242,12 @@ export default function DetailScreen() {
       case 'transcript':
         return recording.transcript || null;
       case 'summary':
-        return recording.summary || null;
+        if (!recording.summary) return null;
+        // Defensive check: if it was saved as an object during the broken state, extract the string
+        if (typeof recording.summary === 'object') {
+          return (recording.summary as any).summary || null;
+        }
+        return recording.summary as string;
       case 'translation':
         return recording.translation || null;
     }
