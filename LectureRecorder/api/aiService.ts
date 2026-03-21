@@ -15,7 +15,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const BACKEND_URL_KEY = 'backend_url';
 const APP_SECRET_KEY = 'app_secret';
-const DEFAULT_BACKEND_URL = 'http://localhost:3000';
+// EXPO_PUBLIC_BACKEND_URL is safe to embed (not a secret — it's just a URL).
+// APP_SECRET is intentionally NOT sourced from an EXPO_PUBLIC_* var.
+const DEFAULT_BACKEND_URL =
+  process.env.EXPO_PUBLIC_BACKEND_URL?.trim() || 'http://localhost:3000';
 
 export async function getBackendUrl(): Promise<string> {
   const url = await AsyncStorage.getItem(BACKEND_URL_KEY);
@@ -56,8 +59,12 @@ const ACCEPT_ALL = { validateStatus: () => true } as const;
 
 // ── Polling config ────────────────────────────────────────────────────────────
 
-const POLL_INTERVAL_MS = 3000;
-const POLL_MAX_ATTEMPTS = 120; // 6-minute maximum wait
+// Initial wait before the first poll: short because AssemblyAI queues fast and
+// short recordings (10–30s) are often done within 3–5s of job submission.
+const POLL_INITIAL_DELAY_MS = 1_000;
+// Subsequent interval between polls after the first attempt.
+const POLL_INTERVAL_MS = 2_000;
+const POLL_MAX_ATTEMPTS = 180; // 6-minute maximum wait at 2s intervals
 
 // ── Exported API functions ────────────────────────────────────────────────────
 // These keep the exact same signatures as before so detail/[id].tsx is unchanged.
@@ -65,8 +72,17 @@ const POLL_MAX_ATTEMPTS = 120; // 6-minute maximum wait
 /**
  * Upload audio to backend → backend uploads to AssemblyAI → poll until done.
  * Returns formatted transcript (with [화자 A] labels if available).
+ *
+ * Timing logs (console only, never shown to users) help identify bottlenecks:
+ *   [transcribe] upload started
+ *   [transcribe] upload done  Xs  → jobId received
+ *   [transcribe] poll #N  Xs elapsed
+ *   [transcribe] done  total Xs
  */
 export async function transcribeAudio(audioUri: string): Promise<string> {
+  const t0 = Date.now();
+  const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
+
   const baseUrl = await getBackendUrl();
   const secret = await getAppSecret();
 
@@ -82,6 +98,7 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
     name: 'audio.m4a',
   } as unknown as Blob);
 
+  console.log('[transcribe] upload started');
   const uploadRes = await axios.post(
     `${baseUrl}/api/transcribe`,
     formData,
@@ -98,12 +115,21 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
 
   const jobId: string = uploadRes.data?.jobId;
   if (!jobId) throw new Error('음성 인식 작업 ID를 받지 못했습니다.');
+  console.log(`[transcribe] upload done ${elapsed()} → jobId ${jobId}`);
 
-  // Step 2: Poll our backend (not AssemblyAI directly)
+  // Step 2: Poll our backend.
+  // Sleep BEFORE the first poll (not after) so we never wait a full interval
+  // past the moment the result becomes available.
+  // Short initial delay (1s) because short recordings finish quickly.
   const headers = await buildHeaders();
-  for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
-    await new Promise<void>((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  let delay = POLL_INITIAL_DELAY_MS;
 
+  for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
+    await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    // Switch to the standard interval after the first attempt
+    delay = POLL_INTERVAL_MS;
+
+    console.log(`[transcribe] poll #${attempt + 1} ${elapsed()}`);
     const pollRes = await axios.get(
       `${baseUrl}/api/transcribe/${jobId}`,
       { headers, timeout: 15_000, ...ACCEPT_ALL }
@@ -116,7 +142,10 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
       error?: string;
     };
 
-    if (status === 'completed' && transcript) return transcript;
+    if (status === 'completed' && transcript) {
+      console.log(`[transcribe] done — total ${elapsed()}`);
+      return transcript;
+    }
     if (status === 'error') throw new Error('음성 인식 실패: ' + (error ?? '알 수 없는 오류'));
     // status === 'processing' → loop
   }
