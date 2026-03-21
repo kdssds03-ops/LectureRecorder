@@ -20,6 +20,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getAppSecret, setAppSecret } from '@/api/aiService';
 import { useSettingsStore, RecognitionLanguage, AudioQuality, SummaryLanguage, TranslationLanguage } from '@/store/useSettingsStore';
 import { ActivityIndicator } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -63,15 +64,15 @@ function SettingRow({
           <Switch
             value={switchValue}
             onValueChange={onSwitchChange}
-            trackColor={{ false: theme.border, true: theme.primary }}
+            trackColor={{ false: theme.border, true: (theme as any).oliveDeep }}
             thumbColor={Platform.OS === 'ios' ? undefined : '#FFFFFF'}
           />
         ) : badge ? (
           <View style={[styles.badge, { backgroundColor: theme.border }]}>
-            <Text style={[styles.badgeText, { color: theme.text }]}>{badge}</Text>
+            <Text style={[styles.badgeText, { color: (theme as any).textSecondary }]}>{badge}</Text>
           </View>
         ) : value ? (
-          <Text style={[styles.rowValue, { color: theme.border }]}>{value}</Text>
+          <Text style={[styles.rowValue, { color: (theme as any).textSecondary }]}>{value}</Text>
         ) : onPress ? (
           <MaterialIcons name="chevron-right" size={20} color={theme.border} />
         ) : null}
@@ -116,7 +117,7 @@ function SelectionModal<T>({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose}>
-        <View style={[styles.modalContent, { backgroundColor: theme.background }]}>
+        <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
           <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>{title}</Text>
             <TouchableOpacity onPress={onClose}>
@@ -130,7 +131,7 @@ function SelectionModal<T>({
                 style={[
                   styles.optionRow,
                   { borderBottomColor: theme.border },
-                  selectedValue === option.value && { backgroundColor: theme.card },
+                  selectedValue === option.value && { backgroundColor: (theme as any).unselectedChip },
                 ]}
                 onPress={() => {
                   onSelect(option.value);
@@ -366,10 +367,15 @@ export default function SettingsScreen() {
                   <Text style={[styles.devButtonText, { color: theme.border }]}>취소</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.devButton, styles.devButtonSave, { backgroundColor: theme.primary }]}
+                  style={[styles.devButton, styles.devButtonSave]}
                   onPress={handleSaveSecret}
                 >
-                  <Text style={[styles.devButtonText, { color: '#FFFFFF' }]}>저장</Text>
+                  <LinearGradient
+                    colors={[(theme as any).oliveLight, (theme as any).oliveDeep]}
+                    style={styles.gradientButton}
+                  >
+                    <Text style={[styles.devButtonText, { color: (theme as any).textOnPrimary ?? '#121212' }]}>저장</Text>
+                  </LinearGradient>
                 </TouchableOpacity>
               </View>
             </View>
@@ -455,16 +461,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 12,
     borderWidth: 1,
-    paddingVertical: 14,
+    height: 60,
     paddingHorizontal: 14,
     marginBottom: 8,
   },
   rowIcon: { marginRight: 12 },
-  rowLabel: { flex: 1, fontSize: 16, fontWeight: '500' },
+  rowLabel: { flex: 1, fontSize: 16, fontWeight: '600' },
   rowRight: { alignItems: 'flex-end' },
-  rowValue: { fontSize: 14, maxWidth: 160, textAlign: 'right' },
-  badge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeText: { fontSize: 11, fontWeight: '600' },
+  rowValue: { fontSize: 15, maxWidth: 160, textAlign: 'right' },
+  badge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  badgeText: { fontSize: 11, fontWeight: '700' },
   // ── Developer panel
   devPanel: {
     borderRadius: 12,
@@ -502,15 +508,27 @@ const styles = StyleSheet.create({
   devButtonCancel: {
     borderWidth: 1,
   },
-  devButtonSave: {},
+  devButtonSave: {
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+    overflow: 'hidden',
+  },
+  gradientButton: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
   devButtonText: {
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   footer: {
     textAlign: 'center',
     fontSize: 12,
     marginTop: 40,
+    marginBottom: 20,
   },
   // ── Selection Modal
   modalOverlay: {

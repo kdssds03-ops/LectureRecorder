@@ -314,8 +314,7 @@ export default function DetailScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Tabs */}
-      <View style={styles.tabContainer}>
+      <View style={[styles.tabContainer, { borderBottomColor: theme.border }]}>
         {([
           { key: 'transcript' as TabType, label: '📝 기록', icon: 'description' },
           { key: 'summary' as TabType, label: '📋 요약', icon: 'summarize' },
@@ -370,7 +369,7 @@ export default function DetailScreen() {
               onPress={getTabAction()}
               accessibilityLabel={getTabActionLabel()}
             >
-              <Text style={styles.actionButtonText}>{getTabActionLabel()}</Text>
+              <Text style={[styles.actionButtonText, { color: (theme as any).textOnPrimary ?? '#121212' }]}>{getTabActionLabel()}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -447,7 +446,6 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
   },
   tab: {
     flex: 1,
@@ -537,7 +535,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   actionButtonText: {
-    color: '#FFFFFF',
     fontSize: 18,
     fontWeight: 'bold',
   },

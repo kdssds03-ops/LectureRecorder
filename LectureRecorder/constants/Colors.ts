@@ -1,20 +1,25 @@
 export const Colors = {
   light: {
-    background: '#FFFFFF', // 화이트
-    text: '#1C1C1E',       // 다크 그레이, 높은 대비
-    primary: '#007AFF',    // 명확한 블루
-    secondary: '#34C759',  // 명확한 그린
+    background: '#FFFFFF',
+    text: '#1C1C1E',
+    primary: '#AACC66',    // Vibrant Olive
+    secondary: '#BBCC88',
     border: '#C6C6C8',
     card: '#F2F2F7',
-    error: '#FF3B30',      // 강렬한 레드
+    error: '#FF3B30',
   },
   dark: {
-    background: '#1C1C1E',
-    text: '#FFFFFF',
-    primary: '#0A84FF',
-    secondary: '#30D158',
-    border: '#38383A',
-    card: '#2C2C2E',
+    background: '#121212',
+    text: '#E0E0E0',
+    primary: '#C2D68F',    // Soft Sage Olive Base
+    secondary: '#DDEEAA',  // Soft Sage Olive Light
+    border: '#333333',
+    card: '#1E1E1E',
     error: '#FF453A',
+    oliveLight: '#DDEEAA',
+    oliveDeep: '#C2D68F',
+    textSecondary: '#9E9E9E',
+    unselectedChip: '#262626',
+    textOnPrimary: '#121212',
   },
 };

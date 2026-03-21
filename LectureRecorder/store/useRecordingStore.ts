@@ -14,7 +14,7 @@ export interface RecordingMeta {
   uri: string;
   duration: number; // in milliseconds
   createdAt: number;
-  folderId?: string;  // optional: which folder this recording belongs to
+  folderId: string | null;  // which folder this recording belongs to
   transcript?: string;
   summary?: string;
   translation?: string;
@@ -22,19 +22,15 @@ export interface RecordingMeta {
 
 interface RecordingStore {
   recordings: RecordingMeta[];
-  folders: Folder[];
   addRecording: (recording: RecordingMeta) => void;
   removeRecording: (id: string) => Promise<void>;
   updateRecording: (id: string, data: Partial<RecordingMeta>) => void;
+  moveToFolder: (recordingId: string, folderId: string | null) => void;
   loadRecordings: () => Promise<void>;
-  addFolder: (name: string) => void;
-  deleteFolder: (id: string) => void;
-  renameFolder: (id: string, newName: string) => void;
 }
 
 export const useRecordingStore = create<RecordingStore>((set, get) => ({
   recordings: [],
-  folders: [],
 
   addRecording: (recording) => {
     const updated = [recording, ...get().recordings];
@@ -45,8 +41,6 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
   removeRecording: async (id) => {
     const target = get().recordings.find((r) => r.id === id);
 
-    // Attempt to delete the local audio file first.
-    // Failure is logged but never blocks the store removal.
     if (target?.uri) {
       try {
         const info = await FileSystem.getInfoAsync(target.uri);
@@ -69,37 +63,18 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
     AsyncStorage.setItem('recordings', JSON.stringify(updated));
   },
 
+  moveToFolder: (recordingId, folderId) => {
+    const updated = get().recordings.map((r) =>
+      r.id === recordingId ? { ...r, folderId } : r
+    );
+    set({ recordings: updated });
+    AsyncStorage.setItem('recordings', JSON.stringify(updated));
+  },
+
   loadRecordings: async () => {
     const recData = await AsyncStorage.getItem('recordings');
-    const folderData = await AsyncStorage.getItem('folders');
     set({
       recordings: recData ? JSON.parse(recData) : [],
-      folders: folderData ? JSON.parse(folderData) : [],
     });
-  },
-
-  addFolder: (name) => {
-    const newFolder: Folder = {
-      id: Date.now().toString(),
-      name: name.trim(),
-      createdAt: Date.now(),
-    };
-    const updated = [...get().folders, newFolder];
-    set({ folders: updated });
-    AsyncStorage.setItem('folders', JSON.stringify(updated));
-  },
-
-  deleteFolder: (id) => {
-    const updated = get().folders.filter((f) => f.id !== id);
-    set({ folders: updated });
-    AsyncStorage.setItem('folders', JSON.stringify(updated));
-  },
-
-  renameFolder: (id, newName) => {
-    const updated = get().folders.map((f) =>
-      f.id === id ? { ...f, name: newName.trim() } : f
-    );
-    set({ folders: updated });
-    AsyncStorage.setItem('folders', JSON.stringify(updated));
   },
 }));

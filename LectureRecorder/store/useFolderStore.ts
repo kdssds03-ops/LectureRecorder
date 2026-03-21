@@ -26,7 +26,7 @@ export const useFolderStore = create<FolderState>()(
       folders: [],
       _hasHydrated: false,
 
-      addFolder: (name, color = '#007AFF', icon = 'folder') => {
+      addFolder: (name, color = '#C2D68F', icon = 'folder') => {
         const newFolder: Folder = {
           id: Math.random().toString(36).substring(2, 15), // Simple unique ID generator fallback
           name: name.trim(),

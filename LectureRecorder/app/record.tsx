@@ -85,6 +85,7 @@ export default function RecordScreen() {
           uri,
           duration,
           createdAt: Date.now(),
+          folderId: null,
         };
         addRecording(newRecording);
         router.back();
@@ -159,7 +160,7 @@ export default function RecordScreen() {
             onPress={startRecording}
             accessibilityLabel="녹음 시작"
           >
-            <MaterialIcons name="mic" size={48} color="#FFFFFF" />
+            <MaterialIcons name="mic" size={48} color={theme.background} />
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
