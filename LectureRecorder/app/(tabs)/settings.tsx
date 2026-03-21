@@ -11,11 +11,14 @@ import {
   Linking,
   KeyboardAvoidingView,
   Platform,
+  Modal,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getAppSecret, setAppSecret } from '@/api/aiService';
+import { useSettingsStore, RecognitionLanguage, AudioQuality } from '@/store/useSettingsStore';
+import { ActivityIndicator } from 'react-native';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -65,6 +68,76 @@ function SettingRow({ icon, label, value, badge, theme, onPress }: SettingRowPro
   return inner;
 }
 
+interface SelectionOption<T> {
+  label: string;
+  value: T;
+}
+
+interface SelectionModalProps<T> {
+  visible: boolean;
+  title: string;
+  options: SelectionOption<T>[];
+  selectedValue: T;
+  onSelect: (value: T) => void;
+  onClose: () => void;
+  theme: (typeof Colors)['light'];
+}
+
+function SelectionModal<T>({
+  visible,
+  title,
+  options,
+  selectedValue,
+  onSelect,
+  onClose,
+  theme,
+}: SelectionModalProps<T>) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose}>
+        <View style={[styles.modalContent, { backgroundColor: theme.background }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{title}</Text>
+            <TouchableOpacity onPress={onClose}>
+              <MaterialIcons name="close" size={24} color={theme.text} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView>
+            {options.map((option) => (
+              <TouchableOpacity
+                key={String(option.value)}
+                style={[
+                  styles.optionRow,
+                  { borderBottomColor: theme.border },
+                  selectedValue === option.value && { backgroundColor: theme.card },
+                ]}
+                onPress={() => {
+                  onSelect(option.value);
+                  onClose();
+                }}
+              >
+                <Text
+                  style={[
+                    styles.optionLabel,
+                    { color: theme.text },
+                    selectedValue === option.value && { color: theme.primary, fontWeight: '700' },
+                  ]}
+                >
+                  {option.label}
+                </Text>
+                {selectedValue === option.value && (
+                  <MaterialIcons name="check" size={20} color={theme.primary} />
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <SafeAreaView />
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
 // ── Main Screen ────────────────────────────────────────────────────────────────
 
 const HIDDEN_TAP_TARGET = 7;
@@ -72,6 +145,18 @@ const HIDDEN_TAP_TARGET = 7;
 export default function SettingsScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
+
+  const {
+    recognitionLanguage,
+    setRecognitionLanguage,
+    audioQuality,
+    setAudioQuality,
+    _hasHydrated,
+  } = useSettingsStore();
+
+  // ── Modal states ────────────────────────────────────────────────────────────
+  const [langModalVisible, setLangModalVisible] = useState(false);
+  const [qualityModalVisible, setQualityModalVisible] = useState(false);
 
   // ── Hidden developer panel state ────────────────────────────────────────────
   const [tapCount, setTapCount] = useState(0);
@@ -100,6 +185,32 @@ export default function SettingsScreen() {
     setTapCount(0);
   };
 
+  if (!_hasHydrated) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background, justifyContent: 'center' }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+      </SafeAreaView>
+    );
+  }
+
+  const RECOGNITION_LANGUAGES: SelectionOption<RecognitionLanguage>[] = [
+    { label: '한국어', value: 'ko' },
+    { label: '영어', value: 'en' },
+    { label: '중국어', value: 'zh' },
+    { label: '자동 감지', value: 'auto' },
+  ];
+
+  const AUDIO_QUALITIES: SelectionOption<AudioQuality>[] = [
+    { label: '표준', value: 'standard' },
+    { label: '고음질', value: 'high' },
+  ];
+
+  const getRecognitionLangLabel = (val: RecognitionLanguage) => 
+    RECOGNITION_LANGUAGES.find(o => o.value === val)?.label || val;
+
+  const getAudioQualityLabel = (val: AudioQuality) =>
+    AUDIO_QUALITIES.find(o => o.value === val)?.label || val;
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
@@ -111,9 +222,27 @@ export default function SettingsScreen() {
 
           {/* ── Recording Preferences ── */}
           <SectionHeader title="🎙️ 녹음 환경설정" theme={theme} />
-          <SettingRow icon="language" label="음성 인식 언어" value="한국어" badge="출시 예정" theme={theme} />
-          <SettingRow icon="record-voice-over" label="화자 구분" value="자동" badge="출시 예정" theme={theme} />
-          <SettingRow icon="graphic-eq" label="오디오 품질" value="고품질" badge="출시 예정" theme={theme} />
+          <SettingRow
+            icon="language"
+            label="음성 인식 언어"
+            value={getRecognitionLangLabel(recognitionLanguage)}
+            theme={theme}
+            onPress={() => setLangModalVisible(true)}
+          />
+          <SettingRow
+            icon="record-voice-over"
+            label="화자 구분"
+            value="자동"
+            badge="출시 예정"
+            theme={theme}
+          />
+          <SettingRow
+            icon="graphic-eq"
+            label="오디오 품질"
+            value={getAudioQualityLabel(audioQuality)}
+            theme={theme}
+            onPress={() => setQualityModalVisible(true)}
+          />
 
           {/* ── Language Preferences ── */}
           <SectionHeader title="🌐 언어 환경설정" theme={theme} />
@@ -188,6 +317,26 @@ export default function SettingsScreen() {
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <SelectionModal
+        visible={langModalVisible}
+        title="음성 인식 언어 선택"
+        options={RECOGNITION_LANGUAGES}
+        selectedValue={recognitionLanguage}
+        onSelect={setRecognitionLanguage}
+        onClose={() => setLangModalVisible(false)}
+        theme={theme}
+      />
+
+      <SelectionModal
+        visible={qualityModalVisible}
+        title="오디오 품질 선택"
+        options={AUDIO_QUALITIES}
+        selectedValue={audioQuality}
+        onSelect={setAudioQuality}
+        onClose={() => setQualityModalVisible(false)}
+        theme={theme}
+      />
     </SafeAreaView>
   );
 }
@@ -279,5 +428,39 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 12,
     marginTop: 40,
+  },
+  // ── Selection Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '80%',
+    paddingBottom: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  optionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    borderBottomWidth: 1,
+  },
+  optionLabel: {
+    fontSize: 16,
   },
 });
