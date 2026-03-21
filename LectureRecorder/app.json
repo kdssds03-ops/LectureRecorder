@@ -8,9 +8,13 @@
     "scheme": "lecturerecorder",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.lecturerecorder.app",
+      "bundleIdentifier": "com.hyunminkim.lecturerecorder",
+      "buildNumber": "1",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "강의를 녹음하기 위해 마이크 접근 권한이 필요합니다."
       }
@@ -24,8 +28,10 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.lecturerecorder.app",
-      "permissions": ["android.permission.RECORD_AUDIO"]
+      "package": "com.hyunminkim.lecturerecorder",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "output": "static",
