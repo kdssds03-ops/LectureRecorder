@@ -1,8 +1,9 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, Text, View, FlatList, TouchableOpacity, SafeAreaView, Alert, Platform, ScrollView } from 'react-native';
+import { StyleSheet, Text, View, FlatList, TouchableOpacity, SafeAreaView, Alert, Platform, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRecordingStore } from '@/store/useRecordingStore';
+import { useFolderStore } from '@/store/useFolderStore';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -10,7 +11,16 @@ export default function HomeScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  const { recordings, loadRecordings, removeRecording, folders, addFolder, deleteFolder } = useRecordingStore();
+  
+  const { recordings, loadRecordings, removeRecording } = useRecordingStore();
+  const { 
+    folders, 
+    addFolder, 
+    deleteFolder, 
+    _hasHydrated: foldersHydrated 
+  } = useFolderStore();
+
+  const [selectedFolderId, setSelectedFolderId] = React.useState<string | null>(null);
 
   useEffect(() => {
     loadRecordings();
@@ -20,15 +30,19 @@ export default function HomeScreen() {
     if (Platform.OS === 'ios') {
       Alert.prompt(
         '새 폴더',
-        '폴더 이름을 입력하세요',
-        (name) => { if (name?.trim()) addFolder(name); },
+        '생성할 폴더의 이름을 입력하세요',
+        (name) => { 
+          if (name?.trim()) {
+            addFolder(name.trim()); 
+          }
+        },
         'plain-text',
         '',
         'default'
       );
     } else {
-      // Android: Alert.prompt is not available — a TextInput modal can be added in Part 2
-      Alert.alert('새 폴더', 'Android 폴더 생성은 다음 업데이트에서 지원됩니다.');
+      // Android placeholder
+      Alert.alert('알림', 'Android에서는 다음 버전에서 폴더 생성을 지원할 예정입니다.');
     }
   };
 
@@ -51,44 +65,76 @@ export default function HomeScreen() {
     return `${minutes}:${String(seconds).padStart(2, '0')}`;
   };
 
+  // Hydration check
+  if (!foldersHydrated) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background, justifyContent: 'center' }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+      </SafeAreaView>
+    );
+  }
+
+  const filteredRecordings = selectedFolderId 
+    ? recordings.filter(r => r.folderId === selectedFolderId)
+    : recordings;
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
         <Text style={[styles.title, { color: theme.text }]}>내 강의 기록</Text>
-        <TouchableOpacity
-          onPress={handleNewFolder}
-          accessibilityLabel="새 폴더 만들기"
-          accessibilityRole="button"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <MaterialIcons name="create-new-folder" size={28} color={theme.primary} />
-        </TouchableOpacity>
       </View>
 
-      {/* Folder strip */}
-      {folders.length > 0 && (
+      <View style={styles.folderSelectionContainer}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.folderStrip}
         >
-          {folders.map((folder) => (
-            <TouchableOpacity
-              key={folder.id}
-              style={[styles.folderChip, { backgroundColor: theme.card, borderColor: theme.border }]}
-              onLongPress={() => handleDeleteFolder(folder.id, folder.name)}
-              accessibilityLabel={`${folder.name} 폴더`}
-              accessibilityHint="길게 누르면 삭제"
-            >
-              <MaterialIcons name="folder" size={16} color={theme.primary} style={{ marginRight: 5 }} />
-              <Text style={[styles.folderChipText, { color: theme.text }]}>{folder.name}</Text>
-            </TouchableOpacity>
-          ))}
+          {/* Add Folder Button */}
+          <TouchableOpacity
+            style={[styles.addFolderChip, { borderColor: theme.border }]}
+            onPress={handleNewFolder}
+            accessibilityLabel="새 폴더 추가"
+          >
+            <MaterialIcons name="add" size={20} color={theme.primary} />
+          </TouchableOpacity>
+
+          {/* 'All' Chip */}
+          <TouchableOpacity
+            style={[
+              styles.folderChip,
+              !selectedFolderId ? [styles.selectedChip, { backgroundColor: theme.primary, shadowColor: theme.primary }] : { backgroundColor: theme.card, borderColor: theme.border }
+            ]}
+            onPress={() => setSelectedFolderId(null)}
+          >
+            <Text style={[styles.folderChipText, !selectedFolderId ? styles.selectedChipText : { color: theme.border }]}>전체</Text>
+          </TouchableOpacity>
+
+          {/* Folder Chips */}
+          {folders.map((folder) => {
+            const isSelected = selectedFolderId === folder.id;
+            return (
+              <TouchableOpacity
+                key={folder.id}
+                style={[
+                  styles.folderChip,
+                  isSelected ? [styles.selectedChip, { backgroundColor: theme.primary, shadowColor: theme.primary }] : { backgroundColor: theme.card, borderColor: theme.border }
+                ]}
+                onPress={() => setSelectedFolderId(folder.id)}
+                onLongPress={() => handleDeleteFolder(folder.id, folder.name)}
+                accessibilityLabel={`${folder.name} 폴더`}
+              >
+                <Text style={[styles.folderChipText, isSelected ? styles.selectedChipText : { color: theme.border }]}>
+                  {folder.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
-      )}
+      </View>
 
       <FlatList
-        data={recordings}
+        data={filteredRecordings}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContainer}
         ListEmptyComponent={
@@ -179,22 +225,45 @@ const styles = StyleSheet.create({
     paddingTop: 40,
     paddingBottom: 16,
   },
+  folderSelectionContainer: {
+    paddingVertical: 8,
+  },
   folderStrip: {
     paddingHorizontal: 20,
-    paddingBottom: 12,
-    gap: 8,
-  },
-  folderChip: {
-    flexDirection: 'row',
+    gap: 10,
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+  },
+  addFolderChip: {
+    width: 40,
+    height: 40,
     borderRadius: 20,
     borderWidth: 1,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  folderChip: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 24,
+    borderWidth: 1,
+    minWidth: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectedChip: {
+    borderWidth: 0,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
   },
   folderChipText: {
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  selectedChipText: {
+    color: '#FFFFFF',
   },
   title: {
     fontSize: 32,
