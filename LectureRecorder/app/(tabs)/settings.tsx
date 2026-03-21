@@ -12,12 +12,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Modal,
+  Switch,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getAppSecret, setAppSecret } from '@/api/aiService';
-import { useSettingsStore, RecognitionLanguage, AudioQuality } from '@/store/useSettingsStore';
+import { useSettingsStore, RecognitionLanguage, AudioQuality, SummaryLanguage, TranslationLanguage } from '@/store/useSettingsStore';
 import { ActivityIndicator } from 'react-native';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -29,6 +30,9 @@ interface SettingRowProps {
   badge?: string;
   theme: (typeof Colors)['light'];
   onPress?: () => void;
+  isSwitch?: boolean;
+  switchValue?: boolean;
+  onSwitchChange?: (val: boolean) => void;
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
@@ -39,13 +43,30 @@ function SectionHeader({ title, theme }: { title: string; theme: (typeof Colors)
   );
 }
 
-function SettingRow({ icon, label, value, badge, theme, onPress }: SettingRowProps) {
+function SettingRow({ 
+  icon, 
+  label, 
+  value, 
+  badge, 
+  theme, 
+  onPress,
+  isSwitch,
+  switchValue,
+  onSwitchChange
+}: SettingRowProps) {
   const inner = (
     <View style={[styles.row, { backgroundColor: theme.card, borderColor: theme.border }]}>
       <MaterialIcons name={icon} size={22} color={theme.primary} style={styles.rowIcon} />
       <Text style={[styles.rowLabel, { color: theme.text }]}>{label}</Text>
       <View style={styles.rowRight}>
-        {badge ? (
+        {isSwitch ? (
+          <Switch
+            value={switchValue}
+            onValueChange={onSwitchChange}
+            trackColor={{ false: theme.border, true: theme.primary }}
+            thumbColor={Platform.OS === 'ios' ? undefined : '#FFFFFF'}
+          />
+        ) : badge ? (
           <View style={[styles.badge, { backgroundColor: theme.border }]}>
             <Text style={[styles.badgeText, { color: theme.text }]}>{badge}</Text>
           </View>
@@ -149,14 +170,22 @@ export default function SettingsScreen() {
   const {
     recognitionLanguage,
     setRecognitionLanguage,
+    speakerDiarization,
+    setSpeakerDiarization,
     audioQuality,
     setAudioQuality,
+    summaryLanguage,
+    setSummaryLanguage,
+    translationLanguage,
+    setTranslationLanguage,
     _hasHydrated,
   } = useSettingsStore();
 
   // ── Modal states ────────────────────────────────────────────────────────────
   const [langModalVisible, setLangModalVisible] = useState(false);
   const [qualityModalVisible, setQualityModalVisible] = useState(false);
+  const [summaryModalVisible, setSummaryModalVisible] = useState(false);
+  const [translationModalVisible, setTranslationModalVisible] = useState(false);
 
   // ── Hidden developer panel state ────────────────────────────────────────────
   const [tapCount, setTapCount] = useState(0);
@@ -205,11 +234,32 @@ export default function SettingsScreen() {
     { label: '고음질', value: 'high' },
   ];
 
+  const SUMMARY_LANGUAGES: SelectionOption<SummaryLanguage>[] = [
+    { label: '한국어', value: 'ko' },
+    { label: '영어', value: 'en' },
+    { label: '중국어', value: 'zh' },
+  ];
+
+  const TRANSLATION_LANGUAGES: SelectionOption<TranslationLanguage>[] = [
+    { label: '영어', value: 'en' },
+    { label: '한국어', value: 'ko' },
+    { label: '일본어', value: 'ja' },
+    { label: '중국어', value: 'zh' },
+    { label: '스페인어', value: 'es' },
+    { label: '프랑스어', value: 'fr' },
+  ];
+
   const getRecognitionLangLabel = (val: RecognitionLanguage) => 
     RECOGNITION_LANGUAGES.find(o => o.value === val)?.label || val;
 
   const getAudioQualityLabel = (val: AudioQuality) =>
     AUDIO_QUALITIES.find(o => o.value === val)?.label || val;
+
+  const getSummaryLangLabel = (val: SummaryLanguage) =>
+    SUMMARY_LANGUAGES.find(o => o.value === val)?.label || val;
+
+  const getTranslationLangLabel = (val: TranslationLanguage) =>
+    TRANSLATION_LANGUAGES.find(o => o.value === val)?.label || val;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -232,9 +282,10 @@ export default function SettingsScreen() {
           <SettingRow
             icon="record-voice-over"
             label="화자 구분"
-            value="자동"
-            badge="출시 예정"
             theme={theme}
+            isSwitch
+            switchValue={speakerDiarization}
+            onSwitchChange={setSpeakerDiarization}
           />
           <SettingRow
             icon="graphic-eq"
@@ -246,8 +297,20 @@ export default function SettingsScreen() {
 
           {/* ── Language Preferences ── */}
           <SectionHeader title="🌐 언어 환경설정" theme={theme} />
-          <SettingRow icon="summarize" label="요약 출력 언어" value="한국어" badge="출시 예정" theme={theme} />
-          <SettingRow icon="translate" label="기본 번역 언어" value="영어" badge="출시 예정" theme={theme} />
+          <SettingRow
+            icon="summarize"
+            label="요약 출력 언어"
+            value={getSummaryLangLabel(summaryLanguage)}
+            theme={theme}
+            onPress={() => setSummaryModalVisible(true)}
+          />
+          <SettingRow
+            icon="translate"
+            label="기본 번역 언어"
+            value={getTranslationLangLabel(translationLanguage)}
+            theme={theme}
+            onPress={() => setTranslationModalVisible(true)}
+          />
 
           {/* ── Privacy & Help ── */}
           <SectionHeader title="🔒 개인정보 및 도움말" theme={theme} />
@@ -335,6 +398,26 @@ export default function SettingsScreen() {
         selectedValue={audioQuality}
         onSelect={setAudioQuality}
         onClose={() => setQualityModalVisible(false)}
+        theme={theme}
+      />
+
+      <SelectionModal
+        visible={summaryModalVisible}
+        title="요약 출력 언어 선택"
+        options={SUMMARY_LANGUAGES}
+        selectedValue={summaryLanguage}
+        onSelect={setSummaryLanguage}
+        onClose={() => setSummaryModalVisible(false)}
+        theme={theme}
+      />
+
+      <SelectionModal
+        visible={translationModalVisible}
+        title="기본 번역 언어 선택"
+        options={TRANSLATION_LANGUAGES}
+        selectedValue={translationLanguage}
+        onSelect={setTranslationLanguage}
+        onClose={() => setTranslationModalVisible(false)}
         theme={theme}
       />
     </SafeAreaView>
