@@ -5,6 +5,7 @@ import { requireAppKey } from './middleware/auth';
 import transcribeRouter from './routes/transcribe';
 import summarizeRouter from './routes/summarize';
 import translateRouter from './routes/translate';
+import titleRouter from './routes/title';
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.use('/api', requireAppKey);
 app.use('/api/transcribe', transcribeRouter);
 app.use('/api/summarize', summarizeRouter);
 app.use('/api/translate', translateRouter);
+app.use('/api/title', titleRouter);
 
 // ─── 404 Handler ──────────────────────────────────────────────────────────────
 app.use((_req, res) => {
