@@ -15,14 +15,41 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const BACKEND_URL_KEY = 'backend_url';
 const APP_SECRET_KEY = 'app_secret';
+const DEVELOPER_MODE_KEY = 'developer_mode';
+
 // EXPO_PUBLIC_BACKEND_URL is safe to embed (not a secret — it's just a URL).
 // APP_SECRET is intentionally NOT sourced from an EXPO_PUBLIC_* var.
-const DEFAULT_BACKEND_URL =
-  process.env.EXPO_PUBLIC_BACKEND_URL?.trim() || 'http://localhost:3000';
+const DEFAULT_BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL?.trim() || '';
+
+export async function getRawBackendOverride(): Promise<string> {
+  const url = await AsyncStorage.getItem(BACKEND_URL_KEY);
+  return url?.trim() || '';
+}
+
+export async function clearBackendOverride(): Promise<void> {
+  await AsyncStorage.removeItem(BACKEND_URL_KEY);
+}
+
+export async function getDeveloperMode(): Promise<boolean> {
+  const val = await AsyncStorage.getItem(DEVELOPER_MODE_KEY);
+  return val === 'true';
+}
+
+export async function setDeveloperMode(enabled: boolean): Promise<void> {
+  await AsyncStorage.setItem(DEVELOPER_MODE_KEY, enabled ? 'true' : 'false');
+}
 
 export async function getBackendUrl(): Promise<string> {
-  const url = await AsyncStorage.getItem(BACKEND_URL_KEY);
-  return url?.trim() || DEFAULT_BACKEND_URL;
+  const isDevMode = await getDeveloperMode();
+  
+  if (__DEV__ && isDevMode) {
+    const override = await getRawBackendOverride();
+    if (override) {
+      console.log(`[Diagnostic] getBackendUrl: using AsyncStorage override -> ${override}`);
+      return override;
+    }
+  }
+  return DEFAULT_BACKEND_URL;
 }
 
 export async function setBackendUrl(url: string): Promise<void> {
@@ -83,7 +110,16 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
   const t0 = Date.now();
   const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
 
+  console.log(`[Diagnostic] transcribeAudio started`);
+  console.log(`[Diagnostic] EXPO_PUBLIC_BACKEND_URL (raw env): ${process.env.EXPO_PUBLIC_BACKEND_URL}`);
+
   const baseUrl = await getBackendUrl();
+  console.log(`[Diagnostic] resolved baseUrl: ${baseUrl}`);
+  
+  const finalUrl = `${baseUrl}/api/transcribe/`;
+  console.log(`[Diagnostic] final POST URL: ${finalUrl}`);
+  console.log(`[Diagnostic] audio URI: ${audioUri}`);
+
   const secret = await getAppSecret();
 
   if (!secret) {
@@ -98,24 +134,30 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
     name: 'audio.m4a',
   } as unknown as Blob);
 
-  console.log('[transcribe] upload started');
-  const uploadRes = await axios.post(
-    `${baseUrl}/api/transcribe`,
-    formData,
-    {
-      headers: {
-        'x-app-key': secret,
-        'Content-Type': 'multipart/form-data',
-      },
-      timeout: 120_000,
-      ...ACCEPT_ALL,
-    }
-  );
-  assertStatus(uploadRes); // throws with populated error.response on 4xx/5xx
+  console.log(`[transcribe] upload started at ${new Date().toISOString()}`);
+  let uploadRes;
+  try {
+    uploadRes = await axios.post(
+      finalUrl,
+      formData,
+      {
+        headers: {
+          'x-app-key': secret,
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: 120_000,
+        ...ACCEPT_ALL,
+      }
+    );
+    assertStatus(uploadRes); // throws with populated error.response on 4xx/5xx
+  } catch (err: any) {
+    console.log(`[Diagnostic] upload failed at ${new Date().toISOString()} | elapsed: ${elapsed()} | error: ${err.message}`);
+    throw err;
+  }
 
   const jobId: string = uploadRes.data?.jobId;
   if (!jobId) throw new Error('음성 인식 작업 ID를 받지 못했습니다.');
-  console.log(`[transcribe] upload done ${elapsed()} → jobId ${jobId}`);
+  console.log(`[transcribe] upload done at ${new Date().toISOString()} ${elapsed()} → jobId ${jobId}`);
 
   // Step 2: Poll our backend.
   // Sleep BEFORE the first poll (not after) so we never wait a full interval

@@ -29,10 +29,12 @@ interface RecordingStore {
   moveToFolder: (recordingId: string, folderId: string | null) => void;
   loadRecordings: () => Promise<void>;
   fetchSummary: (recordingId: string) => Promise<void>;
+  _hasHydrated: boolean;
 }
 
 export const useRecordingStore = create<RecordingStore>((set, get) => ({
   recordings: [],
+  _hasHydrated: false,
 
   addRecording: (recording) => {
     const updated = [recording, ...get().recordings];
@@ -77,6 +79,7 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
     const recData = await AsyncStorage.getItem('recordings');
     set({
       recordings: recData ? JSON.parse(recData) : [],
+      _hasHydrated: true,
     });
   },
 

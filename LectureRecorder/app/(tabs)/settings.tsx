@@ -18,7 +18,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { getAppSecret, setAppSecret } from '@/api/aiService';
+import { getAppSecret, setAppSecret, getDeveloperMode, setDeveloperMode, clearBackendOverride, getRawBackendOverride, setBackendUrl } from '@/api/aiService';
 import { useSettingsStore, RecognitionLanguage, AudioQuality, SummaryLanguage, TranslationLanguage } from '@/store/useSettingsStore';
 import { ActivityIndicator } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -193,10 +193,14 @@ export default function SettingsScreen() {
   const [tapCount, setTapCount] = useState(0);
   const [showDevPanel, setShowDevPanel] = useState(false);
   const [secretDraft, setSecretDraft] = useState('');
+  const [isDeveloperMode, setIsDeveloperMode] = useState(false);
+  const [backendUrlDraft, setBackendUrlDraft] = useState('');
 
   useEffect(() => {
     if (!showDevPanel) return;
     getAppSecret().then(setSecretDraft);
+    getDeveloperMode().then(setIsDeveloperMode);
+    getRawBackendOverride().then(setBackendUrlDraft);
   }, [showDevPanel]);
 
   const handleVersionTap = () => {
@@ -209,9 +213,21 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleToggleDeveloperMode = async (val: boolean) => {
+    setIsDeveloperMode(val);
+    await setDeveloperMode(val);
+    if (!val) {
+      await clearBackendOverride();
+      setBackendUrlDraft('');
+    }
+  };
+
   const handleSaveSecret = async () => {
     await setAppSecret(secretDraft);
-    Alert.alert('저장됨', '앱 시크릿 키가 저장되었습니다.');
+    if (__DEV__ && isDeveloperMode && backendUrlDraft.trim() !== '') {
+      await setBackendUrl(backendUrlDraft);
+    }
+    Alert.alert('저장됨', '설정이 저장되었습니다.');
     setShowDevPanel(false);
     setTapCount(0);
   };
@@ -365,6 +381,19 @@ export default function SettingsScreen() {
           {showDevPanel && (
             <View style={[styles.devPanel, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Text style={[styles.devPanelTitle, { color: theme.text }]}>🔧 내부 설정</Text>
+              
+              <View style={[styles.row, { borderWidth: 0, paddingHorizontal: 0, height: 44, marginBottom: 4 }]}>
+                <Text style={[styles.rowLabel, { color: theme.text, fontSize: 13, fontWeight: '700' }]}>
+                  개발자 기능 활성화
+                </Text>
+                <Switch
+                  value={isDeveloperMode}
+                  onValueChange={handleToggleDeveloperMode}
+                  trackColor={{ false: theme.border, true: (theme as any).oliveDeep }}
+                  thumbColor={Platform.OS === 'ios' ? undefined : '#FFFFFF'}
+                />
+              </View>
+
               <Text style={[styles.devPanelSubtitle, { color: theme.border }]}>
                 테스터 전용 · 앱 시크릿 키
               </Text>
@@ -378,6 +407,24 @@ export default function SettingsScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
               />
+
+              {__DEV__ && isDeveloperMode && (
+                <>
+                  <Text style={[styles.devPanelSubtitle, { color: theme.border, marginTop: 4 }]}>
+                    Backend URL Override
+                  </Text>
+                  <TextInput
+                    style={[styles.devInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
+                    value={backendUrlDraft}
+                    onChangeText={setBackendUrlDraft}
+                    placeholder="http://192.168.x.x:3000"
+                    placeholderTextColor={theme.border}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </>
+              )}
+
               <View style={styles.devButtonRow}>
                 <TouchableOpacity
                   style={[styles.devButton, styles.devButtonCancel, { borderColor: theme.border }]}

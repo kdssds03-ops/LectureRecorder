@@ -205,7 +205,15 @@ export default function HomeScreen() {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}
-            onPress={() => router.push(`/detail/${item.id}`)}
+            onPress={() => router.push({
+              pathname: "/detail/[id]",
+              params: { 
+                id: item.id,
+                name: item.name, 
+                duration: item.duration, 
+                createdAt: item.createdAt 
+              }
+            })}
             onLongPress={() => handleLongPressRecording(item.id, item.folderId)}
             accessibilityLabel={`${item.name} 강의 기록 보기. 길게 눌러 폴더 이동`}
             accessibilityRole="button"

@@ -45,13 +45,29 @@ const API_ERROR_MESSAGES: Record<ReturnType<typeof classifyApiError>, string> = 
 };
 
 export default function DetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, name: paramName, duration: paramDuration, createdAt: paramCreatedAt } = useLocalSearchParams<{ 
+    id: string; 
+    name?: string; 
+    duration?: string; 
+    createdAt?: string; 
+  }>();
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  const { recordings, updateRecording, fetchSummary } = useRecordingStore();
+  
+  // PERFORMANCE: Use selective state to avoid re-renders when other recordings change
+  const recording = useRecordingStore(
+    (state) => state.recordings.find((r) => r.id === id)
+  );
+  const updateRecording = useRecordingStore((state) => state.updateRecording);
+  const fetchSummary = useRecordingStore((state) => state.fetchSummary);
+  const foldersHydrated = useRecordingStore((state) => state._hasHydrated);
 
-  const recording = recordings.find((r) => r.id === id);
+  // Instant display data from either the store or the passed params
+  const displayName = recording?.name || paramName || '강의 기록';
+  const displayDuration = recording?.duration || (paramDuration ? Number(paramDuration) : 0);
+  const displayDate = recording?.createdAt || (paramCreatedAt ? Number(paramCreatedAt) : Date.now());
+
 
   const [activeTab, setActiveTab] = useState<TabType>('transcript');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -60,6 +76,9 @@ export default function DetailScreen() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackPosition, setPlaybackPosition] = useState(0);
   const [playbackDuration, setPlaybackDuration] = useState(0);
+  
+  // PERFORMANCE: Defer functional readiness to second paint
+  const [isReadyForHeavyWork, setIsReadyForHeavyWork] = useState(false);
   const [fileExists, setFileExists] = useState<boolean | null>(null);
   const [playbackRate, setPlaybackRate] = useState<1.0 | 1.2 | 1.5 | 2.0>(1.0);
 
@@ -74,16 +93,23 @@ export default function DetailScreen() {
     }
   };
 
-  // Check whether the audio file still exists on disk
+  // PROGRESSIVE: Defer background work slightly to ensure first paint is smooth
   useEffect(() => {
-    if (!recording?.uri) {
-      setFileExists(false);
+    const timer = setTimeout(() => setIsReadyForHeavyWork(true), 50);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // PERFORMANCE: Heavy file check in background, only when ready
+  useEffect(() => {
+    if (!isReadyForHeavyWork || !recording?.uri) {
+      if (!recording?.uri && isReadyForHeavyWork) setFileExists(false);
       return;
     }
+    
     FileSystem.getInfoAsync(recording.uri).then((info) => {
       setFileExists(info.exists);
     });
-  }, [recording?.uri]);
+  }, [recording?.uri, isReadyForHeavyWork]);
 
   useEffect(() => {
     return () => {
@@ -161,6 +187,20 @@ export default function DetailScreen() {
     }
   }, [recording]);
 
+  if (!recording && foldersHydrated && !paramName) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} accessibilityLabel="뒤로 가기">
+            <MaterialIcons name="arrow-back" size={28} color={theme.text} />
+          </TouchableOpacity>
+        </View>
+        <Text style={[styles.errorText, { color: theme.text, marginTop: 100 }]}>녹음을 찾을 수 없습니다.</Text>
+      </SafeAreaView>
+    );
+  }
+
+
   const handleTranslate = useCallback(async () => {
     if (!recording || !recording.transcript) {
       Alert.alert('알림', '먼저 음성을 텍스트로 변환해 주세요.');
@@ -186,52 +226,14 @@ export default function DetailScreen() {
     return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   };
 
-  if (!recording) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-        <Text style={[styles.errorText, { color: theme.text }]}>녹음을 찾을 수 없습니다.</Text>
-      </SafeAreaView>
-    );
-  }
+  const formatDate = (timestamp: number) => {
+    const d = new Date(timestamp);
+    return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
 
-  // Still checking file existence — show a brief loading state
-  if (fileExists === null) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-        <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 100 }} />
-      </SafeAreaView>
-    );
-  }
-
-  // Audio file was deleted from disk — show clear error with back button
-  if (fileExists === false) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} accessibilityLabel="뒤로 가기">
-            <MaterialIcons name="arrow-back" size={28} color={theme.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>{recording.name}</Text>
-          <View style={{ width: 28 }} />
-        </View>
-        <View style={styles.missingFileContainer}>
-          <MaterialIcons name="error-outline" size={64} color={theme.error} />
-          <Text style={[styles.missingFileTitle, { color: theme.text }]}>파일을 찾을 수 없음</Text>
-          <Text style={[styles.missingFileDesc, { color: theme.border }]}>
-            오디오 파일이 기기에서 삭제되었습니다.{'\n'}
-            저장된 텍스트 기록은 아래에서 확인할 수 있습니다.
-          </Text>
-          {recording.transcript ? (
-            <Text style={[styles.contentText, { color: theme.text, marginTop: 24 }]}>
-              {recording.transcript}
-            </Text>
-          ) : null}
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   const getTabContent = () => {
+    if (!recording) return null;
     switch (activeTab) {
       case 'transcript':
         return recording.transcript || null;
@@ -246,6 +248,7 @@ export default function DetailScreen() {
         return recording.translation || null;
     }
   };
+
 
   const getTabAction = () => {
     switch (activeTab) {
@@ -280,39 +283,64 @@ export default function DetailScreen() {
           <MaterialIcons name="arrow-back" size={28} color={theme.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-          {recording.name}
+          {displayName}
         </Text>
         <View style={{ width: 28 }} />
       </View>
 
-      {/* Player */}
-      <View style={[styles.playerCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <TouchableOpacity onPress={togglePlayback} accessibilityLabel={isPlaying ? '일시 정지' : '재생'}>
-          <MaterialIcons name={isPlaying ? 'pause-circle-filled' : 'play-circle-filled'} size={56} color={theme.primary} />
-        </TouchableOpacity>
-        <View style={styles.playerInfo}>
-          <Text style={[styles.playerTime, { color: theme.text }]}>
-            {formatTime(playbackPosition)} / {formatTime(recording.duration)}
-          </Text>
-          <View style={[styles.progressBar, { backgroundColor: theme.border }]}>
-            <View style={[styles.progressFill, { width: `${progressWidth}%`, backgroundColor: theme.primary }]} />
+      {/* Date Info - Progressive */}
+      <Text style={[styles.skeletonDate, { color: (theme as any).textSecondary, backgroundColor: 'transparent', opacity: 1, marginBottom: 12 }]}>
+        {formatDate(displayDate)}
+      </Text>
+
+      {/* Player Card - Skeleton or Real */}
+      {!isReadyForHeavyWork ? (
+        <View style={[styles.playerCard, styles.skeletonPlayer, { backgroundColor: theme.card, borderColor: theme.border }]} />
+      ) : (
+        <View style={[styles.playerCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <TouchableOpacity 
+            onPress={togglePlayback} 
+            disabled={fileExists === false}
+            accessibilityLabel={isPlaying ? '일시 정지' : '재생'}
+          >
+            <MaterialIcons 
+              name={fileExists === false ? 'error-outline' : (isPlaying ? 'pause-circle-filled' : 'play-circle-filled')} 
+              size={56} 
+              color={fileExists === false ? theme.error : theme.primary} 
+            />
+          </TouchableOpacity>
+          <View style={styles.playerInfo}>
+            {fileExists === false ? (
+              <Text style={[styles.playerTime, { color: theme.error, fontSize: 14 }]}>
+                오디오 파일을 찾을 수 없습니다
+              </Text>
+            ) : (
+              <>
+                <Text style={[styles.playerTime, { color: theme.text }]}>
+                  {formatTime(playbackPosition)} / {formatTime(displayDuration)}
+                </Text>
+                <View style={[styles.progressBar, { backgroundColor: theme.border }]}>
+                  <View style={[styles.progressFill, { width: `${progressWidth}%`, backgroundColor: theme.primary }]} />
+                </View>
+              </>
+            )}
           </View>
+          <TouchableOpacity
+            onPress={cycleSpeed}
+            style={[styles.speedBadge, { backgroundColor: theme.background, borderColor: theme.border }]}
+            accessibilityLabel={`재생 속도 ${playbackRate}배속`}
+            accessibilityRole="button"
+          >
+            <Text style={[styles.speedText, { color: theme.primary }]}>{playbackRate.toFixed(1)}x</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          onPress={cycleSpeed}
-          style={[styles.speedBadge, { backgroundColor: theme.background, borderColor: theme.border }]}
-          accessibilityLabel={`재생 속도 ${playbackRate}배속`}
-          accessibilityRole="button"
-        >
-          <Text style={[styles.speedText, { color: theme.primary }]}>{playbackRate.toFixed(1)}x</Text>
-        </TouchableOpacity>
-      </View>
+      )}
 
       {/* Premium AI Summary Button */}
-      {recording.transcript && !recording.summary && (
+      {isReadyForHeavyWork && recording?.transcript && !recording?.summary && (
         <TouchableOpacity
           onPress={handleSummarize}
-          disabled={recording.isSummarizing}
+          disabled={recording?.isSummarizing}
           style={styles.aiButtonWrapper}
         >
           <LinearGradient
@@ -321,7 +349,7 @@ export default function DetailScreen() {
             end={{ x: 1, y: 0 }}
             style={styles.aiButton}
           >
-            {recording.isSummarizing ? (
+            {recording?.isSummarizing ? (
               <ActivityIndicator color={(theme as any).textOnPrimary || '#121212'} />
             ) : (
               <>
@@ -360,9 +388,15 @@ export default function DetailScreen() {
         ))}
       </View>
 
-      {/* Content */}
+      {/* Content - Skeleton or Real */}
       <ScrollView style={styles.contentArea} contentContainerStyle={styles.contentContainer}>
-        {isProcessing ? (
+        {!isReadyForHeavyWork ? (
+          <View style={styles.skeletonContent}>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+              <View key={i} style={[styles.skeletonLine, { width: `${80 + Math.random() * 20}%` }]} />
+            ))}
+          </View>
+        ) : isProcessing || recording?.isSummarizing ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={theme.primary} />
             <Text style={[styles.loadingText, { color: theme.text }]}>처리 중...</Text>
@@ -394,7 +428,7 @@ export default function DetailScreen() {
         )}
       </ScrollView>
       {/* AI Processing overlay */}
-      <Modal visible={isProcessing || recording.isSummarizing} transparent animationType="fade">
+      <Modal visible={isProcessing || (recording?.isSummarizing ?? false)} transparent animationType="fade">
         <View style={styles.overlayBackdrop}>
           <View style={[styles.overlayCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <ActivityIndicator size="large" color={theme.primary} />
@@ -595,5 +629,30 @@ const styles = StyleSheet.create({
   aiButtonText: {
     fontSize: 16,
     fontWeight: '700',
+  },
+  // ── Skeletons
+  skeletonPlayer: {
+    height: 90,
+    opacity: 0.15,
+  },
+  skeletonContent: {
+    paddingTop: 10,
+    gap: 16,
+  },
+  skeletonLine: {
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#C2D68F',
+    opacity: 0.1,
+  },
+  skeletonDate: {
+    marginHorizontal: 20,
+    marginTop: -8,
+    marginBottom: 20,
+    height: 14,
+    width: 140,
+    borderRadius: 7,
+    backgroundColor: '#C2D68F',
+    opacity: 0.1,
   },
 });
