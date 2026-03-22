@@ -19,7 +19,13 @@ const DEVELOPER_MODE_KEY = 'developer_mode';
 
 // EXPO_PUBLIC_BACKEND_URL is safe to embed (not a secret — it's just a URL).
 // APP_SECRET is intentionally NOT sourced from an EXPO_PUBLIC_* var.
-const DEFAULT_BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL?.trim() || '';
+
+function normalizeBaseUrl(url: string): string {
+  if (!url) return '';
+  return url.trim().replace(/\/+$/, '');
+}
+
+const DEFAULT_BACKEND_URL = normalizeBaseUrl(process.env.EXPO_PUBLIC_BACKEND_URL || '');
 
 export async function getRawBackendOverride(): Promise<string> {
   const url = await AsyncStorage.getItem(BACKEND_URL_KEY);
@@ -40,20 +46,39 @@ export async function setDeveloperMode(enabled: boolean): Promise<void> {
 }
 
 export async function getBackendUrl(): Promise<string> {
+  console.log(`[Diagnostic] raw env EXPO_PUBLIC_BACKEND_URL: ${process.env.EXPO_PUBLIC_BACKEND_URL}`);
   const isDevMode = await getDeveloperMode();
   
   if (__DEV__ && isDevMode) {
-    const override = await getRawBackendOverride();
-    if (override) {
-      console.log(`[Diagnostic] getBackendUrl: using AsyncStorage override -> ${override}`);
-      return override;
+    const rawOverride = await getRawBackendOverride();
+    console.log(`[Diagnostic] raw asyncStorage override: '${rawOverride}'`);
+    const normalizedOverride = normalizeBaseUrl(rawOverride);
+    
+    // Only use if it's a valid http or https URL
+    if (normalizedOverride && (normalizedOverride.startsWith('http://') || normalizedOverride.startsWith('https://'))) {
+      console.log(`[Diagnostic] getBackendUrl: resolved baseUrl (override) -> ${normalizedOverride}`);
+      return normalizedOverride;
+    } else if (rawOverride) {
+      console.log(`[Diagnostic] getBackendUrl: ignored invalid override -> ${rawOverride}`);
     }
   }
+  
+  console.log(`[Diagnostic] getBackendUrl: resolved baseUrl (default) -> ${DEFAULT_BACKEND_URL}`);
   return DEFAULT_BACKEND_URL;
 }
 
 export async function setBackendUrl(url: string): Promise<void> {
-  await AsyncStorage.setItem(BACKEND_URL_KEY, url.trim());
+  await AsyncStorage.setItem(BACKEND_URL_KEY, normalizeBaseUrl(url));
+}
+
+/**
+ * Temporary helper for debugging: safely resets the backend configuration
+ * to ensure the app uses the environment default.
+ */
+export async function resetBackendConfigForDebug(): Promise<void> {
+  await clearBackendOverride();
+  await setDeveloperMode(false);
+  console.log('[Diagnostic] Backend config reset: override cleared and developer mode disabled.');
 }
 
 export async function getAppSecret(): Promise<string> {
