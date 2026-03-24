@@ -28,6 +28,9 @@
       "ios": {
         "simulator": false
       },
+      "android": {
+        "buildType": "app-bundle"
+      },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://lecturerecorder-production.up.railway.app"
       }

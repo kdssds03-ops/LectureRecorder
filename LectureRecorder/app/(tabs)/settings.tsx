@@ -1,254 +1,66 @@
 import React, { useState, useEffect } from 'react';
-import {
-  StyleSheet,
-  Text,
-  View,
-  SafeAreaView,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  Alert,
-  Linking,
-  KeyboardAvoidingView,
-  Platform,
-  Modal,
-  Switch,
-} from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, ScrollView, TouchableOpacity, TextInput, Alert, Linking, KeyboardAvoidingView, Platform, Modal, Switch, ActivityIndicator } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
+
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getAppSecret, setAppSecret, getDeveloperMode, setDeveloperMode, clearBackendOverride, getRawBackendOverride, setBackendUrl } from '@/api/aiService';
 import { useSettingsStore, RecognitionLanguage, AudioQuality, SummaryLanguage, TranslationLanguage } from '@/store/useSettingsStore';
-import { ActivityIndicator } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
-// ── Types ──────────────────────────────────────────────────────────────────────
-
-interface SettingRowProps {
-  icon: keyof typeof MaterialIcons.glyphMap;
-  label: string;
-  value?: string;
-  badge?: string;
-  theme: (typeof Colors)['light'];
-  onPress?: () => void;
-  isSwitch?: boolean;
-  switchValue?: boolean;
-  onSwitchChange?: (val: boolean) => void;
+function SectionHeader({ title, theme }: { title: string; theme: any }) {
+  return <Text style={[styles.sectionHeader, { color: theme.primary }]}>{title}</Text>;
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────────
-
-function SectionHeader({ title, theme }: { title: string; theme: (typeof Colors)['light'] }) {
-  return (
-    <Text style={[styles.sectionHeader, { color: theme.primary }]}>{title}</Text>
-  );
-}
-
-function SettingRow({ 
-  icon, 
-  label, 
-  value, 
-  badge, 
-  theme, 
-  onPress,
-  isSwitch,
-  switchValue,
-  onSwitchChange
-}: SettingRowProps) {
+function SettingRow({ icon, label, value, theme, onPress, isSwitch, switchValue, onSwitchChange }: any) {
   const inner = (
-    <View style={[styles.row, { backgroundColor: theme.card, borderColor: theme.border }]}>
-      <MaterialIcons name={icon} size={22} color={theme.primary} style={styles.rowIcon} />
+    <View style={[styles.row, { backgroundColor: theme.card, shadowColor: theme.shadow }]}>
+      <View style={[styles.iconBox, { backgroundColor: theme.oliveLight }]}>
+        <MaterialIcons name={icon} size={20} color={theme.primary} />
+      </View>
       <Text style={[styles.rowLabel, { color: theme.text }]}>{label}</Text>
       <View style={styles.rowRight}>
         {isSwitch ? (
           <Switch
             value={switchValue}
             onValueChange={onSwitchChange}
-            trackColor={{ false: theme.border, true: (theme as any).oliveDeep }}
-            thumbColor={Platform.OS === 'ios' ? undefined : '#FFFFFF'}
+            trackColor={{ false: theme.border, true: theme.primary }}
+            thumbColor="#FFFFFF"
           />
-        ) : badge ? (
-          <View style={[styles.badge, { backgroundColor: theme.border }]}>
-            <Text style={[styles.badgeText, { color: (theme as any).textSecondary }]}>{badge}</Text>
-          </View>
         ) : value ? (
-          <Text style={[styles.rowValue, { color: (theme as any).textSecondary }]}>{value}</Text>
-        ) : onPress ? (
+          <Text style={[styles.rowValue, { color: theme.textSecondary }]}>{value}</Text>
+        ) : (
           <MaterialIcons name="chevron-right" size={20} color={theme.border} />
-        ) : null}
+        )}
       </View>
     </View>
   );
 
-  if (onPress) {
-    return (
-      <TouchableOpacity onPress={onPress} accessibilityRole="button">
-        {inner}
-      </TouchableOpacity>
-    );
-  }
-  return inner;
+  return onPress ? <TouchableOpacity onPress={onPress} activeOpacity={0.7}>{inner}</TouchableOpacity> : inner;
 }
-
-interface SelectionOption<T> {
-  label: string;
-  value: T;
-}
-
-interface SelectionModalProps<T> {
-  visible: boolean;
-  title: string;
-  options: SelectionOption<T>[];
-  selectedValue: T;
-  onSelect: (value: T) => void;
-  onClose: () => void;
-  theme: (typeof Colors)['light'];
-}
-
-function SelectionModal<T>({
-  visible,
-  title,
-  options,
-  selectedValue,
-  onSelect,
-  onClose,
-  theme,
-}: SelectionModalProps<T>) {
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose}>
-        <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-          <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>{title}</Text>
-            <TouchableOpacity onPress={onClose}>
-              <MaterialIcons name="close" size={24} color={theme.text} />
-            </TouchableOpacity>
-          </View>
-          <ScrollView>
-            {options.map((option) => (
-              <TouchableOpacity
-                key={String(option.value)}
-                style={[
-                  styles.optionRow,
-                  { borderBottomColor: theme.border },
-                  selectedValue === option.value && { backgroundColor: (theme as any).unselectedChip },
-                ]}
-                onPress={() => {
-                  onSelect(option.value);
-                  onClose();
-                }}
-              >
-                <Text
-                  style={[
-                    styles.optionLabel,
-                    { color: theme.text },
-                    selectedValue === option.value && { color: theme.primary, fontWeight: '700' },
-                  ]}
-                >
-                  {option.label}
-                </Text>
-                {selectedValue === option.value && (
-                  <MaterialIcons name="check" size={20} color={theme.primary} />
-                )}
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          <SafeAreaView />
-        </View>
-      </TouchableOpacity>
-    </Modal>
-  );
-}
-
-// ── Main Screen ────────────────────────────────────────────────────────────────
-
-const HIDDEN_TAP_TARGET = 7;
 
 export default function SettingsScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
 
   const {
-    recognitionLanguage,
-    setRecognitionLanguage,
-    speakerDiarization,
-    setSpeakerDiarization,
-    audioQuality,
-    setAudioQuality,
-    summaryLanguage,
-    setSummaryLanguage,
-    translationLanguage,
-    setTranslationLanguage,
+    recognitionLanguage, setRecognitionLanguage,
+    speakerDiarization, setSpeakerDiarization,
+    audioQuality, setAudioQuality,
+    summaryLanguage, setSummaryLanguage,
+    translationLanguage, setTranslationLanguage,
     _hasHydrated,
   } = useSettingsStore();
 
-  // ── Modal states ────────────────────────────────────────────────────────────
   const [langModalVisible, setLangModalVisible] = useState(false);
   const [qualityModalVisible, setQualityModalVisible] = useState(false);
   const [summaryModalVisible, setSummaryModalVisible] = useState(false);
   const [translationModalVisible, setTranslationModalVisible] = useState(false);
 
-  // ── Hidden developer panel state ────────────────────────────────────────────
   const [tapCount, setTapCount] = useState(0);
   const [showDevPanel, setShowDevPanel] = useState(false);
   const [secretDraft, setSecretDraft] = useState('');
-  const [isDeveloperMode, setIsDeveloperMode] = useState(false);
-  const [backendUrlDraft, setBackendUrlDraft] = useState('');
-
-  useEffect(() => {
-    if (!showDevPanel) return;
-    getAppSecret().then(setSecretDraft);
-    getDeveloperMode().then(setIsDeveloperMode);
-    getRawBackendOverride().then(setBackendUrlDraft);
-  }, [showDevPanel]);
-
-  const handleVersionTap = () => {
-    const next = tapCount + 1;
-    if (next >= HIDDEN_TAP_TARGET) {
-      setShowDevPanel(true);
-      setTapCount(0);
-    } else {
-      setTapCount(next);
-    }
-  };
-
-  const handleToggleDeveloperMode = async (val: boolean) => {
-    setIsDeveloperMode(val);
-    await setDeveloperMode(val);
-    if (!val) {
-      await clearBackendOverride();
-      setBackendUrlDraft('');
-    }
-  };
-
-  const handleSaveSecret = async () => {
-    await setAppSecret(secretDraft);
-    if (__DEV__ && isDeveloperMode && backendUrlDraft.trim() !== '') {
-      await setBackendUrl(backendUrlDraft);
-    }
-    Alert.alert('저장됨', '설정이 저장되었습니다.');
-    setShowDevPanel(false);
-    setTapCount(0);
-  };
-
-  const handlePrivacyPolicy = async () => {
-    await WebBrowser.openBrowserAsync('https://your-notion-link-or-gist.com', {
-      toolbarColor: (theme as any).oliveDeep || '#C2D68F',
-      controlsColor: theme.primary,
-      enableBarCollapsing: true,
-      showTitle: true,
-    });
-  };
-
-  const handleSupport = () => {
-    const email = 'support@lecturerecorder.com';
-    const subject = '[문의] Lecture Recorder 이용 관련 문의드립니다';
-    const body = '안녕하세요, 아래에 문의 내용을 상세히 적어주시면 신속히 답변드리겠습니다.\n\n1. 기기 모델명:\n2. OS 버전:\n3. 문의 내용:';
-    
-    const url = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    Linking.openURL(url);
-  };
 
   if (!_hasHydrated) {
     return (
@@ -258,44 +70,24 @@ export default function SettingsScreen() {
     );
   }
 
-  const RECOGNITION_LANGUAGES: SelectionOption<RecognitionLanguage>[] = [
-    { label: '한국어', value: 'ko' },
-    { label: '영어', value: 'en' },
-    { label: '중국어', value: 'zh' },
-    { label: '자동 감지', value: 'auto' },
-  ];
+  const handlePrivacyPolicy = async () => {
+    await WebBrowser.openBrowserAsync('https://gist.github.com/kdssds03-ops/d5e16b62e40867e50d4d61649c5f794e', {
+      toolbarColor: theme.primary,
+      controlsColor: '#FFFFFF',
+    });
+  };
 
-  const AUDIO_QUALITIES: SelectionOption<AudioQuality>[] = [
-    { label: '표준', value: 'standard' },
-    { label: '고음질', value: 'high' },
-  ];
-
-  const SUMMARY_LANGUAGES: SelectionOption<SummaryLanguage>[] = [
-    { label: '한국어', value: 'ko' },
-    { label: '영어', value: 'en' },
-    { label: '중국어', value: 'zh' },
-  ];
-
-  const TRANSLATION_LANGUAGES: SelectionOption<TranslationLanguage>[] = [
-    { label: '영어', value: 'en' },
-    { label: '한국어', value: 'ko' },
-    { label: '일본어', value: 'ja' },
-    { label: '중국어', value: 'zh' },
-    { label: '스페인어', value: 'es' },
-    { label: '프랑스어', value: 'fr' },
-  ];
-
-  const getRecognitionLangLabel = (val: RecognitionLanguage) => 
-    RECOGNITION_LANGUAGES.find(o => o.value === val)?.label || val;
-
-  const getAudioQualityLabel = (val: AudioQuality) =>
-    AUDIO_QUALITIES.find(o => o.value === val)?.label || val;
-
-  const getSummaryLangLabel = (val: SummaryLanguage) =>
-    SUMMARY_LANGUAGES.find(o => o.value === val)?.label || val;
-
-  const getTranslationLangLabel = (val: TranslationLanguage) =>
-    TRANSLATION_LANGUAGES.find(o => o.value === val)?.label || val;
+  const handleSendFeedback = async () => {
+    const subject = encodeURIComponent('[노깡 피드백] 사용자 의견');
+    const body = encodeURIComponent('안녕하세요!\n\n노깡 앱 사용 중 느낀 점이나 개선 사항을 자유롭게 적어주세요.\n\n\n---\n앱 버전: 1.0.0\n기기: ' + Platform.OS);
+    const mailtoUrl = `mailto:kdssds03@gmail.com?subject=${subject}&body=${body}`;
+    
+    try {
+      await Linking.openURL(mailtoUrl);
+    } catch (error) {
+      Alert.alert('오류', '메일 앱을 열 수 없습니다.');
+    }
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -303,341 +95,103 @@ export default function SettingsScreen() {
         <Text style={[styles.title, { color: theme.text }]}>설정</Text>
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <SectionHeader title="인식 및 요약 설정" theme={theme} />
+        <SettingRow
+          icon="language"
+          label="음성 인식 언어"
+          value={recognitionLanguage === 'ko' ? '한국어' : recognitionLanguage === 'en' ? '영어' : '자동'}
+          theme={theme}
+          onPress={() => setLangModalVisible(true)}
+        />
+        <SettingRow
+          icon="people"
+          label="화자 분리 (Beta)"
+          isSwitch
+          switchValue={speakerDiarization}
+          onSwitchChange={setSpeakerDiarization}
+          theme={theme}
+        />
+        <SettingRow
+          icon="high-quality"
+          label="녹음 음질"
+          value={audioQuality === 'high' ? '고음질' : '표준'}
+          theme={theme}
+          onPress={() => setQualityModalVisible(true)}
+        />
 
-          {/* ── Recording Preferences ── */}
-          <SectionHeader title="🎙️ 녹음 환경설정" theme={theme} />
-          <SettingRow
-            icon="language"
-            label="음성 인식 언어"
-            value={getRecognitionLangLabel(recognitionLanguage)}
-            theme={theme}
-            onPress={() => setLangModalVisible(true)}
-          />
-          <SettingRow
-            icon="record-voice-over"
-            label="화자 구분"
-            theme={theme}
-            isSwitch
-            switchValue={speakerDiarization}
-            onSwitchChange={setSpeakerDiarization}
-          />
-          <SettingRow
-            icon="graphic-eq"
-            label="오디오 품질"
-            value={getAudioQualityLabel(audioQuality)}
-            theme={theme}
-            onPress={() => setQualityModalVisible(true)}
-          />
+        <View style={{ height: 24 }} />
+        <SectionHeader title="AI 노트 설정" theme={theme} />
+        <SettingRow
+          icon="article"
+          label="요약 언어"
+          value={summaryLanguage === 'ko' ? '한국어' : '영어'}
+          theme={theme}
+          onPress={() => setSummaryModalVisible(true)}
+        />
+        <SettingRow
+          icon="translate"
+          label="기본 번역 언어"
+          value={translationLanguage === 'en' ? '영어' : translationLanguage === 'ja' ? '일본어' : '한국어'}
+          theme={theme}
+          onPress={() => setTranslationModalVisible(true)}
+        />
 
-          {/* ── Language Preferences ── */}
-          <SectionHeader title="🌐 언어 환경설정" theme={theme} />
-          <SettingRow
-            icon="summarize"
-            label="요약 출력 언어"
-            value={getSummaryLangLabel(summaryLanguage)}
-            theme={theme}
-            onPress={() => setSummaryModalVisible(true)}
-          />
-          <SettingRow
-            icon="translate"
-            label="기본 번역 언어"
-            value={getTranslationLangLabel(translationLanguage)}
-            theme={theme}
-            onPress={() => setTranslationModalVisible(true)}
-          />
-
-          {/* ── Privacy & Help ── */}
-          <SectionHeader title="🔒 개인정보 및 도움말" theme={theme} />
-          <SettingRow
-            icon="privacy-tip"
-            label="개인정보 처리방침"
-            theme={theme}
-            onPress={handlePrivacyPolicy}
-          />
-          <SettingRow
-            icon="help-outline"
-            label="도움말 및 지원"
-            theme={theme}
-            onPress={handleSupport}
-          />
-
-          {/* ── App Info ── */}
-          <SectionHeader title="ℹ️ 앱 정보" theme={theme} />
-
-          {/* Version row — tap 7× to reveal dev panel */}
-          <TouchableOpacity onPress={handleVersionTap} accessibilityRole="button" accessibilityLabel="버전 정보">
-            <View style={[styles.row, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <MaterialIcons name="info-outline" size={22} color={theme.primary} style={styles.rowIcon} />
-              <Text style={[styles.rowLabel, { color: theme.text }]}>버전</Text>
-              <Text style={[styles.rowValue, { color: theme.border }]}>1.0.0</Text>
-            </View>
-          </TouchableOpacity>
-
-          <SettingRow icon="mic" label="LectureRecorder" value="강의 녹음 · 화자 구분 · 요약 · 번역" theme={theme} />
-
-          {/* ── Hidden developer panel (7-tap unlock) ── */}
-          {showDevPanel && (
-            <View style={[styles.devPanel, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <Text style={[styles.devPanelTitle, { color: theme.text }]}>🔧 내부 설정</Text>
-              
-              <View style={[styles.row, { borderWidth: 0, paddingHorizontal: 0, height: 44, marginBottom: 4 }]}>
-                <Text style={[styles.rowLabel, { color: theme.text, fontSize: 13, fontWeight: '700' }]}>
-                  개발자 기능 활성화
-                </Text>
-                <Switch
-                  value={isDeveloperMode}
-                  onValueChange={handleToggleDeveloperMode}
-                  trackColor={{ false: theme.border, true: (theme as any).oliveDeep }}
-                  thumbColor={Platform.OS === 'ios' ? undefined : '#FFFFFF'}
-                />
-              </View>
-
-              <Text style={[styles.devPanelSubtitle, { color: theme.border }]}>
-                테스터 전용 · 앱 시크릿 키
-              </Text>
-              <TextInput
-                style={[styles.devInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
-                value={secretDraft}
-                onChangeText={setSecretDraft}
-                placeholder="앱 시크릿 키 입력"
-                placeholderTextColor={theme.border}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-
-              {__DEV__ && isDeveloperMode && (
-                <>
-                  <Text style={[styles.devPanelSubtitle, { color: theme.border, marginTop: 4 }]}>
-                    Backend URL Override
-                  </Text>
-                  <TextInput
-                    style={[styles.devInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
-                    value={backendUrlDraft}
-                    onChangeText={setBackendUrlDraft}
-                    placeholder="http://192.168.x.x:3000"
-                    placeholderTextColor={theme.border}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                </>
-              )}
-
-              <View style={styles.devButtonRow}>
-                <TouchableOpacity
-                  style={[styles.devButton, styles.devButtonCancel, { borderColor: theme.border }]}
-                  onPress={() => { setShowDevPanel(false); setTapCount(0); }}
-                >
-                  <Text style={[styles.devButtonText, { color: theme.border }]}>취소</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.devButton, styles.devButtonSave]}
-                  onPress={handleSaveSecret}
-                >
-                  <LinearGradient
-                    colors={[(theme as any).oliveLight, (theme as any).oliveDeep]}
-                    style={styles.gradientButton}
-                  >
-                    <Text style={[styles.devButtonText, { color: (theme as any).textOnPrimary ?? '#121212' }]}>저장</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          <Text style={[styles.versionText, { color: (theme as any).oliveDeep || '#C2D68F' }]}>
-            v1.0.0
-          </Text>
-          <Text style={[styles.footer, { color: theme.border }]}>
-            © {new Date().getFullYear()} LectureRecorder. All rights reserved.
-          </Text>
-        </ScrollView>
-      </KeyboardAvoidingView>
-
-      <SelectionModal
-        visible={langModalVisible}
-        title="음성 인식 언어 선택"
-        options={RECOGNITION_LANGUAGES}
-        selectedValue={recognitionLanguage}
-        onSelect={setRecognitionLanguage}
-        onClose={() => setLangModalVisible(false)}
-        theme={theme}
-      />
-
-      <SelectionModal
-        visible={qualityModalVisible}
-        title="오디오 품질 선택"
-        options={AUDIO_QUALITIES}
-        selectedValue={audioQuality}
-        onSelect={setAudioQuality}
-        onClose={() => setQualityModalVisible(false)}
-        theme={theme}
-      />
-
-      <SelectionModal
-        visible={summaryModalVisible}
-        title="요약 출력 언어 선택"
-        options={SUMMARY_LANGUAGES}
-        selectedValue={summaryLanguage}
-        onSelect={setSummaryLanguage}
-        onClose={() => setSummaryModalVisible(false)}
-        theme={theme}
-      />
-
-      <SelectionModal
-        visible={translationModalVisible}
-        title="기본 번역 언어 선택"
-        options={TRANSLATION_LANGUAGES}
-        selectedValue={translationLanguage}
-        onSelect={setTranslationLanguage}
-        onClose={() => setTranslationModalVisible(false)}
-        theme={theme}
-      />
+        <View style={{ height: 24 }} />
+        <SectionHeader title="정보" theme={theme} />
+        <SettingRow icon="security" label="개인정보 처리방침" theme={theme} onPress={handlePrivacyPolicy} />
+        <SettingRow icon="mail" label="피드백 보내기" theme={theme} onPress={handleSendFeedback} />
+        <SettingRow icon="info" label="앱 버전" value="1.0.0" theme={theme} onPress={() => setTapCount(c => c + 1)} />
+        
+        {tapCount >= 7 && (
+          <View style={[styles.devPanel, { backgroundColor: theme.card }]}>
+            <Text style={{ color: theme.text, fontWeight: 'bold', marginBottom: 8 }}>개발자 설정</Text>
+            <TextInput
+              style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+              placeholder="App Secret"
+              value={secretDraft}
+              onChangeText={setSecretDraft}
+              secureTextEntry
+            />
+            <TouchableOpacity 
+              style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+              onPress={async () => {
+                await setAppSecret(secretDraft);
+                Alert.alert('저장됨');
+                setTapCount(0);
+              }}
+            >
+              <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>비밀키 저장</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
-// ── Styles ─────────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 40,
-    paddingBottom: 16,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-  },
-  content: {
-    paddingHorizontal: 20,
-    paddingBottom: 48,
-  },
-  sectionHeader: {
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    marginTop: 28,
-    marginBottom: 8,
-    marginLeft: 4,
-  },
+  header: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 16 },
+  title: { fontSize: 28, fontWeight: '800' },
+  scrollContent: { padding: 24, paddingBottom: 100 },
+  sectionHeader: { fontSize: 14, fontWeight: '800', marginBottom: 12, marginLeft: 4, textTransform: 'uppercase', letterSpacing: 1 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 12,
-    borderWidth: 1,
-    height: 60,
-    paddingHorizontal: 14,
-    marginBottom: 8,
-  },
-  rowIcon: { marginRight: 12 },
-  rowLabel: { flex: 1, fontSize: 16, fontWeight: '600' },
-  rowRight: { alignItems: 'flex-end' },
-  rowValue: { fontSize: 15, maxWidth: 160, textAlign: 'right' },
-  badge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
-  badgeText: { fontSize: 11, fontWeight: '700' },
-  // ── Developer panel
-  devPanel: {
-    borderRadius: 12,
-    borderWidth: 1,
     padding: 16,
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  devPanelTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: 2,
-  },
-  devPanelSubtitle: {
-    fontSize: 12,
+    borderRadius: 20,
     marginBottom: 12,
+    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
   },
-  devInput: {
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 15,
-    marginBottom: 12,
-  },
-  devButtonRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  devButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  devButtonCancel: {
-    borderWidth: 1,
-  },
-  devButtonSave: {
-    paddingVertical: 0,
-    paddingHorizontal: 0,
-    overflow: 'hidden',
-  },
-  gradientButton: {
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-  },
-  devButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  footer: {
-    textAlign: 'center',
-    fontSize: 12,
-    marginTop: 8,
-    marginBottom: 20,
-  },
-  versionText: {
-    textAlign: 'center',
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 40,
-    opacity: 0.6,
-  },
-  // ── Selection Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '80%',
-    paddingBottom: 20,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  optionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 18,
-    paddingHorizontal: 24,
-    borderBottomWidth: 1,
-  },
-  optionLabel: {
-    fontSize: 16,
-  },
+  iconBox: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 16 },
+  rowLabel: { flex: 1, fontSize: 16, fontWeight: '600' },
+  rowValue: { fontSize: 14, fontWeight: '600' },
+  rowRight: { flexDirection: 'row', alignItems: 'center' },
+  devPanel: { marginTop: 24, padding: 20, borderRadius: 20, elevation: 4 },
+  input: { height: 48, borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, marginBottom: 12 },
+  saveBtn: { height: 48, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
 });

@@ -11,6 +11,7 @@ export interface Folder {
 export interface RecordingMeta {
   id: string;
   name: string;
+  titleSource?: 'default' | 'ai' | 'user';
   uri: string;
   duration: number; // in milliseconds
   createdAt: number;
@@ -29,6 +30,7 @@ interface RecordingStore {
   moveToFolder: (recordingId: string, folderId: string | null) => void;
   loadRecordings: () => Promise<void>;
   fetchSummary: (recordingId: string) => Promise<void>;
+  generateTitleFromText: (recordingId: string, text: string) => Promise<void>;
   _hasHydrated: boolean;
 }
 
@@ -83,6 +85,43 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
     });
   },
 
+  generateTitleFromText: async (recordingId: string, text: string) => {
+    console.log(`[Diagnostic] generateTitleFromText triggered for recordingId: ${recordingId}`);
+    const { recordings, updateRecording } = get();
+    const recording = recordings.find(r => r.id === recordingId);
+    
+    // Only auto-generate if 'default' or 'ai'. Never overwrite 'user' titles.
+    if (!recording) {
+      console.log(`[Diagnostic] generateTitleFromText aborted: recording not found`);
+      return;
+    }
+    if (recording.titleSource === 'user') {
+      console.log(`[Diagnostic] generateTitleFromText aborted: titleSource is 'user'`);
+      return;
+    }
+
+    try {
+      console.log(`[Diagnostic] generateTitleFromText: calling generateRecordingTitle API`);
+      const { generateRecordingTitle } = require('@/api/aiService');
+      const newTitle = await generateRecordingTitle(text);
+      console.log(`[Diagnostic] generateTitleFromText: API returned new title -> '${newTitle}'`);
+      
+      if (newTitle) {
+        // Guard against race conditions: check state hasn't changed to 'user' during await!
+        const currentRecording = get().recordings.find(r => r.id === recordingId);
+        if (currentRecording && currentRecording.titleSource !== 'user') {
+          console.log(`[Diagnostic] generateTitleFromText: committing title update to store`);
+          updateRecording(recordingId, { name: newTitle, titleSource: 'ai' });
+        } else {
+          console.log(`[Diagnostic] generateTitleFromText aborted on response: user edited title while waiting`);
+        }
+      }
+    } catch (e: any) {
+      console.log(`[Diagnostic] generateTitleFromText API call failed: ${e?.message ?? String(e)}`);
+      console.log('[store] generateTitleFromText failed, silent ignore:', e);
+    }
+  },
+
   fetchSummary: async (recordingId: string) => {
     const { recordings, updateRecording } = get();
     const recording = recordings.find(r => r.id === recordingId);
@@ -101,11 +140,17 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
         isSummarizing: false 
       };
       
-      if (suggestedName && suggestedName.trim() !== '') {
+      if (suggestedName && suggestedName.trim() !== '' && recording.titleSource !== 'user') {
         updates.name = suggestedName;
+        updates.titleSource = 'ai';
       }
       
       updateRecording(recordingId, updates);
+
+      // Fallback: If no suggestedName arrived natively, trigger the dedicated title flow
+      if (!suggestedName && recording.titleSource !== 'user') {
+        get().generateTitleFromText(recordingId, recording.transcript);
+      }
     } catch (error) {
       updateRecording(recordingId, { isSummarizing: false });
       throw error;

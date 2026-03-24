@@ -1,11 +1,17 @@
 {
   "expo": {
-    "name": "강의 녹음",
-    "slug": "LectureRecorder",
+    "name": "노깡 - AI 강의 녹음 및 요약",
+    "slug": "nokkang",
     "version": "1.0.0",
+    "description": "강의를 녹음하고 AI를 통해 자동으로 텍스트 변환, 요약, 번역까지 제공하는 스마트 강의 도우미입니다.",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "lecturerecorder",
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F1F5E9"
+    },
+    "scheme": "nokkang",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "runtimeVersion": {
@@ -13,22 +19,23 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.hyunminkim.lecturerecorder",
+      "bundleIdentifier": "com.hyunminkim.nokkang",
       "buildNumber": "1",
+      "icon": "./assets/images/icon.png",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "강의를 녹음하기 위해 마이크 접근 권한이 필요합니다."
+        "NSMicrophoneUsageDescription": "강의 내용을 실시간으로 녹음하고 텍스트로 변환하기 위해 마이크 접근 권한이 필요합니다.",
+        "NSSpeechRecognitionUsageDescription": "음성을 텍스트로 변환하기 위해 음성 인식 권한이 필요합니다.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#007AFF",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#F1F5E9",
+        "foregroundImage": "./assets/images/icon.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.hyunminkim.lecturerecorder",
+      "package": "com.hyunminkim.nokkang",
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ]
@@ -42,10 +49,10 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/splash.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#007AFF",
+          "backgroundColor": "#F1F5E9",
           "dark": {
             "backgroundColor": "#1C1C1E"
           }
@@ -55,6 +62,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d3dbdfd1-5b27-443f-bc76-00a16bb8d108"
+      }
+    },
+    "owner": "walter-a"
   }
 }

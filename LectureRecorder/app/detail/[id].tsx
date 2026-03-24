@@ -1,20 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  StyleSheet,
-  Text,
-  View,
-  TouchableOpacity,
-  SafeAreaView,
-  ScrollView,
-  ActivityIndicator,
-  Alert,
-  Modal,
-} from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, ActivityIndicator, Alert, Modal, TextInput } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
-import { useRecordingStore, RecordingMeta } from '@/store/useRecordingStore';
+import { useRecordingStore } from '@/store/useRecordingStore';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,15 +12,8 @@ import { transcribeAudio, translateText } from '@/api/aiService';
 
 type TabType = 'transcript' | 'summary' | 'translation';
 
-/**
- * Classify axios errors into user-facing message categories.
- * - No response (network down / timeout) → 'network'
- * - 401 / 403                            → 'auth'
- * - 500+                                 → 'server'
- * - Anything else                        → 'unknown'
- */
 function classifyApiError(error: any): 'network' | 'auth' | 'server' | 'unknown' {
-  if (!error.response) return 'network';            // no response = unreachable / timeout
+  if (!error.response) return 'network';
   const status: number = error.response.status;
   if (status === 401 || status === 403) return 'auth';
   if (status >= 500) return 'server';
@@ -39,7 +22,7 @@ function classifyApiError(error: any): 'network' | 'auth' | 'server' | 'unknown'
 
 const API_ERROR_MESSAGES: Record<ReturnType<typeof classifyApiError>, string> = {
   network: '네트워크 연결을 확인하고 다시 시도해 주세요.',
-  auth: '앱 키 또는 백엔드 주소가 올바르지 않습니다. 설정을 확인해 주세요.',
+  auth: '앱 키 또는 백엔드 주소가 올바르지 않습니다.',
   server: '서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',
   unknown: '오류가 발생했습니다. 잠시 후 다시 시도해 주세요.',
 };
@@ -55,73 +38,38 @@ export default function DetailScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
   
-  // PERFORMANCE: Use selective state to avoid re-renders when other recordings change
-  const recording = useRecordingStore(
-    (state) => state.recordings.find((r) => r.id === id)
-  );
+  const recording = useRecordingStore((state) => state.recordings.find((r) => r.id === id));
   const updateRecording = useRecordingStore((state) => state.updateRecording);
   const fetchSummary = useRecordingStore((state) => state.fetchSummary);
   const foldersHydrated = useRecordingStore((state) => state._hasHydrated);
 
-  // Instant display data from either the store or the passed params
   const displayName = recording?.name || paramName || '강의 기록';
   const displayDuration = recording?.duration || (paramDuration ? Number(paramDuration) : 0);
   const displayDate = recording?.createdAt || (paramCreatedAt ? Number(paramCreatedAt) : Date.now());
 
-
   const [activeTab, setActiveTab] = useState<TabType>('transcript');
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
+  
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editTitleDraft, setEditTitleDraft] = useState('');
+
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackPosition, setPlaybackPosition] = useState(0);
   const [playbackDuration, setPlaybackDuration] = useState(0);
-  
-  // PERFORMANCE: Defer functional readiness to second paint
-  const [isReadyForHeavyWork, setIsReadyForHeavyWork] = useState(false);
-  const [fileExists, setFileExists] = useState<boolean | null>(null);
   const [playbackRate, setPlaybackRate] = useState<1.0 | 1.2 | 1.5 | 2.0>(1.0);
 
   const SPEED_STEPS: Array<1.0 | 1.2 | 1.5 | 2.0> = [1.0, 1.2, 1.5, 2.0];
 
-  const cycleSpeed = async () => {
-    const nextIdx = (SPEED_STEPS.indexOf(playbackRate) + 1) % SPEED_STEPS.length;
-    const nextRate = SPEED_STEPS[nextIdx];
-    setPlaybackRate(nextRate);
-    if (sound) {
-      await sound.setRateAsync(nextRate, true);
-    }
-  };
-
-  // PROGRESSIVE: Defer background work slightly to ensure first paint is smooth
-  useEffect(() => {
-    const timer = setTimeout(() => setIsReadyForHeavyWork(true), 50);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // PERFORMANCE: Heavy file check in background, only when ready
-  useEffect(() => {
-    if (!isReadyForHeavyWork || !recording?.uri) {
-      if (!recording?.uri && isReadyForHeavyWork) setFileExists(false);
-      return;
-    }
-    
-    FileSystem.getInfoAsync(recording.uri).then((info) => {
-      setFileExists(info.exists);
-    });
-  }, [recording?.uri, isReadyForHeavyWork]);
-
   useEffect(() => {
     return () => {
-      if (sound) {
-        sound.unloadAsync();
-      }
+      if (sound) sound.unloadAsync();
     };
   }, [sound]);
 
   const togglePlayback = async () => {
     if (!recording) return;
-
     try {
       if (sound && isPlaying) {
         await sound.pauseAsync();
@@ -137,9 +85,7 @@ export default function DetailScreen() {
             if (status.isLoaded) {
               setPlaybackPosition(status.positionMillis ?? 0);
               setPlaybackDuration(status.durationMillis ?? 0);
-              if (status.didJustFinish) {
-                setIsPlaying(false);
-              }
+              if (status.didJustFinish) setIsPlaying(false);
             }
           }
         );
@@ -147,59 +93,50 @@ export default function DetailScreen() {
         setIsPlaying(true);
       }
     } catch (error) {
-      console.error('Playback error', error);
-      Alert.alert('재생 오류', '오디오를 재생할 수 없습니다. 파일이 손상되었거나 지원되지 않는 형식일 수 있습니다.');
+      Alert.alert('재생 오류', '오디오를 재생할 수 없습니다.');
     }
+  };
+
+  const cycleSpeed = async () => {
+    const nextIdx = (SPEED_STEPS.indexOf(playbackRate) + 1) % SPEED_STEPS.length;
+    const nextRate = SPEED_STEPS[nextIdx];
+    setPlaybackRate(nextRate);
+    if (sound) await sound.setRateAsync(nextRate, true);
   };
 
   const handleTranscribe = useCallback(async () => {
     if (!recording) return;
-    if (fileExists === false) {
-      Alert.alert('파일 없음', '오디오 파일이 삭제되었거나 찾을 수 없습니다.');
-      return;
-    }
     setIsProcessing(true);
-    setProcessingStatus('오디오 업로드 중...');
+    setProcessingStatus('오디오 분석 중...');
     try {
       const result = await transcribeAudio(recording.uri);
-      setProcessingStatus('텍스트 변환 완료');
       updateRecording(recording.id, { transcript: result });
+      const { generateTitleFromText } = useRecordingStore.getState();
+      generateTitleFromText(recording.id, result);
     } catch (error: any) {
       Alert.alert('음성 인식 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
     } finally {
       setIsProcessing(false);
       setProcessingStatus('');
     }
-  }, [recording, fileExists]);
+  }, [recording]);
 
   const handleSummarize = useCallback(async () => {
     if (!recording || !recording.transcript) {
       Alert.alert('알림', '먼저 음성을 텍스트로 변환해 주세요.');
       return;
     }
+    setIsProcessing(true);
+    setProcessingStatus('AI 요약 생성 중...');
     try {
-      setProcessingStatus('요약 생성 중...');
       await fetchSummary(recording.id);
     } catch (error: any) {
       Alert.alert('요약 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
     } finally {
+      setIsProcessing(false);
       setProcessingStatus('');
     }
   }, [recording]);
-
-  if (!recording && foldersHydrated && !paramName) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} accessibilityLabel="뒤로 가기">
-            <MaterialIcons name="arrow-back" size={28} color={theme.text} />
-          </TouchableOpacity>
-        </View>
-        <Text style={[styles.errorText, { color: theme.text, marginTop: 100 }]}>녹음을 찾을 수 없습니다.</Text>
-      </SafeAreaView>
-    );
-  }
-
 
   const handleTranslate = useCallback(async () => {
     if (!recording || !recording.transcript) {
@@ -228,431 +165,239 @@ export default function DetailScreen() {
 
   const formatDate = (timestamp: number) => {
     const d = new Date(timestamp);
-    return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
   };
-
 
   const getTabContent = () => {
     if (!recording) return null;
     switch (activeTab) {
-      case 'transcript':
-        return recording.transcript || null;
-      case 'summary':
+      case 'transcript': return recording.transcript || null;
+      case 'summary': 
         if (!recording.summary) return null;
-        // Defensive check: if it was saved as an object during the broken state, extract the string
-        if (typeof recording.summary === 'object') {
-          return (recording.summary as any).summary || null;
-        }
-        return recording.summary as string;
-      case 'translation':
-        return recording.translation || null;
+        return typeof recording.summary === 'object' ? (recording.summary as any).summary : recording.summary;
+      case 'translation': return recording.translation || null;
     }
   };
 
-
-  const getTabAction = () => {
-    switch (activeTab) {
-      case 'transcript':
-        return handleTranscribe;
-      case 'summary':
-        return handleSummarize;
-      case 'translation':
-        return handleTranslate;
-    }
-  };
-
-  const getTabActionLabel = () => {
-    switch (activeTab) {
-      case 'transcript':
-        return '음성 인식 시작';
-      case 'summary':
-        return '요약 생성';
-      case 'translation':
-        return '번역 시작';
-    }
-  };
-
-  const tabContent = getTabContent();
   const progressWidth = playbackDuration > 0 ? (playbackPosition / playbackDuration) * 100 : 0;
+  const tabContent = getTabContent();
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} accessibilityLabel="뒤로 가기">
-          <MaterialIcons name="arrow-back" size={28} color={theme.text} />
+        <TouchableOpacity 
+          onPress={() => router.back()} 
+          style={[styles.backButton, { backgroundColor: theme.card, borderColor: theme.border }]}
+        >
+          <MaterialIcons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-          {displayName}
-        </Text>
-        <View style={{ width: 28 }} />
+        <TouchableOpacity 
+          style={styles.titleContainer} 
+          onPress={() => {
+            setEditTitleDraft(displayName);
+            setIsEditingTitle(true);
+          }}
+        >
+          <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>{displayName}</Text>
+          <MaterialIcons name="edit" size={14} color={theme.primary} style={{ marginLeft: 4 }} />
+        </TouchableOpacity>
+        <View style={{ width: 44 }} />
       </View>
 
-      {/* Date Info - Progressive */}
-      <Text style={[styles.skeletonDate, { color: (theme as any).textSecondary, backgroundColor: 'transparent', opacity: 1, marginBottom: 12 }]}>
-        {formatDate(displayDate)}
-      </Text>
-
-      {/* Player Card - Skeleton or Real */}
-      {!isReadyForHeavyWork ? (
-        <View style={[styles.playerCard, styles.skeletonPlayer, { backgroundColor: theme.card, borderColor: theme.border }]} />
-      ) : (
-        <View style={[styles.playerCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <TouchableOpacity 
-            onPress={togglePlayback} 
-            disabled={fileExists === false}
-            accessibilityLabel={isPlaying ? '일시 정지' : '재생'}
-          >
-            <MaterialIcons 
-              name={fileExists === false ? 'error-outline' : (isPlaying ? 'pause-circle-filled' : 'play-circle-filled')} 
-              size={56} 
-              color={fileExists === false ? theme.error : theme.primary} 
-            />
-          </TouchableOpacity>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* Audio Player Card */}
+        <View style={[styles.playerCard, { backgroundColor: theme.card, shadowColor: (theme as any).shadow }]}>
           <View style={styles.playerInfo}>
-            {fileExists === false ? (
-              <Text style={[styles.playerTime, { color: theme.error, fontSize: 14 }]}>
-                오디오 파일을 찾을 수 없습니다
-              </Text>
-            ) : (
-              <>
-                <Text style={[styles.playerTime, { color: theme.text }]}>
-                  {formatTime(playbackPosition)} / {formatTime(displayDuration)}
-                </Text>
-                <View style={[styles.progressBar, { backgroundColor: theme.border }]}>
-                  <View style={[styles.progressFill, { width: `${progressWidth}%`, backgroundColor: theme.primary }]} />
-                </View>
-              </>
-            )}
+            <Text style={[styles.playerDate, { color: theme.textSecondary }]}>{formatDate(displayDate)}</Text>
+            <Text style={[styles.playerDuration, { color: theme.text }]}>{formatTime(displayDuration)}</Text>
           </View>
-          <TouchableOpacity
-            onPress={cycleSpeed}
-            style={[styles.speedBadge, { backgroundColor: theme.background, borderColor: theme.border }]}
-            accessibilityLabel={`재생 속도 ${playbackRate}배속`}
-            accessibilityRole="button"
-          >
-            <Text style={[styles.speedText, { color: theme.primary }]}>{playbackRate.toFixed(1)}x</Text>
-          </TouchableOpacity>
+          
+          <View style={styles.progressBarContainer}>
+            <View style={[styles.progressBarBackground, { backgroundColor: theme.border }]}>
+              <View style={[styles.progressBarFill, { width: `${progressWidth}%`, backgroundColor: theme.primary }]} />
+            </View>
+            <View style={styles.timeLabels}>
+              <Text style={[styles.timeLabel, { color: theme.textSecondary }]}>{formatTime(playbackPosition)}</Text>
+              <Text style={[styles.timeLabel, { color: theme.textSecondary }]}>{formatTime(playbackDuration || displayDuration)}</Text>
+            </View>
+          </View>
+
+          <View style={styles.playerControls}>
+            <TouchableOpacity onPress={cycleSpeed} style={[styles.speedButton, { backgroundColor: (theme as any).oliveLight }]}>
+              <Text style={[styles.speedText, { color: theme.primary }]}>{playbackRate}x</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity onPress={togglePlayback} style={[styles.playButton, { backgroundColor: theme.primary }]}>
+              <MaterialIcons name={isPlaying ? "pause" : "play-arrow"} size={36} color="#FFFFFF" />
+            </TouchableOpacity>
+            
+            <View style={{ width: 50 }} />
+          </View>
         </View>
-      )}
 
-      {/* Premium AI Summary Button */}
-      {isReadyForHeavyWork && recording?.transcript && !recording?.summary && (
-        <TouchableOpacity
-          onPress={handleSummarize}
-          disabled={recording?.isSummarizing}
-          style={styles.aiButtonWrapper}
-        >
-          <LinearGradient
-            colors={[(theme as any).oliveLight || '#DDEEAA', (theme as any).oliveDeep || '#C2D68F']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.aiButton}
-          >
-            {recording?.isSummarizing ? (
-              <ActivityIndicator color={(theme as any).textOnPrimary || '#121212'} />
-            ) : (
-              <>
-                <MaterialIcons name="auto-awesome" size={20} color={(theme as any).textOnPrimary || '#121212'} />
-                <Text style={[styles.aiButtonText, { color: (theme as any).textOnPrimary || '#121212' }]}>AI 요약 생성하기</Text>
-              </>
-            )}
-          </LinearGradient>
-        </TouchableOpacity>
-      )}
-
-      <View style={[styles.tabContainer, { borderBottomColor: theme.border }]}>
-        {([
-          { key: 'transcript' as TabType, label: '📝 기록', icon: 'description' },
-          { key: 'summary' as TabType, label: '📋 요약', icon: 'summarize' },
-          { key: 'translation' as TabType, label: '🌐 번역', icon: 'translate' },
-        ]).map((tab) => (
-          <TouchableOpacity
-            key={tab.key}
-            style={[
-              styles.tab,
-              activeTab === tab.key && { borderBottomColor: theme.primary, borderBottomWidth: 3 },
-            ]}
-            onPress={() => setActiveTab(tab.key)}
-            accessibilityLabel={`${tab.label} 탭`}
-          >
-            <Text
+        {/* Tabs */}
+        <View style={[styles.tabContainer, { backgroundColor: (theme as any).oliveLight }]}>
+          {(['transcript', 'summary', 'translation'] as TabType[]).map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              onPress={() => setActiveTab(tab)}
               style={[
-                styles.tabLabel,
-                { color: activeTab === tab.key ? theme.primary : theme.border },
+                styles.tabButton,
+                activeTab === tab && { backgroundColor: theme.card, shadowColor: (theme as any).shadow }
               ]}
             >
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Content - Skeleton or Real */}
-      <ScrollView style={styles.contentArea} contentContainerStyle={styles.contentContainer}>
-        {!isReadyForHeavyWork ? (
-          <View style={styles.skeletonContent}>
-            {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
-              <View key={i} style={[styles.skeletonLine, { width: `${80 + Math.random() * 20}%` }]} />
-            ))}
-          </View>
-        ) : isProcessing || recording?.isSummarizing ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={theme.primary} />
-            <Text style={[styles.loadingText, { color: theme.text }]}>처리 중...</Text>
-          </View>
-        ) : tabContent ? (
-          <Text style={[styles.contentText, { color: theme.text }]}>{tabContent}</Text>
-        ) : (
-          <View style={styles.emptyContent}>
-            <MaterialIcons
-              name={activeTab === 'transcript' ? 'mic' : activeTab === 'summary' ? 'auto-awesome' : 'translate'}
-              size={48}
-              color={theme.border}
-            />
-            <Text style={[styles.emptyText, { color: theme.border }]}>
-              {activeTab === 'transcript'
-                ? '아직 텍스트로 변환되지 않았습니다.'
-                : activeTab === 'summary'
-                  ? '아직 요약이 생성되지 않았습니다.'
-                  : '아직 번역이 완료되지 않았습니다.'}
-            </Text>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: theme.primary }]}
-              onPress={getTabAction()}
-              accessibilityLabel={getTabActionLabel()}
-            >
-              <Text style={[styles.actionButtonText, { color: (theme as any).textOnPrimary ?? '#121212' }]}>{getTabActionLabel()}</Text>
+              <Text style={[
+                styles.tabText,
+                { color: theme.textSecondary },
+                activeTab === tab && { color: theme.primary, fontWeight: '800' }
+              ]}>
+                {tab === 'transcript' ? '기록' : tab === 'summary' ? '요약' : '번역'}
+              </Text>
             </TouchableOpacity>
-          </View>
-        )}
-      </ScrollView>
-      {/* AI Processing overlay */}
-      <Modal visible={isProcessing || (recording?.isSummarizing ?? false)} transparent animationType="fade">
-        <View style={styles.overlayBackdrop}>
-          <View style={[styles.overlayCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <ActivityIndicator size="large" color={theme.primary} />
-            <Text style={[styles.overlayStatus, { color: theme.text }]}>
-              {processingStatus || '처리 중...'}
-            </Text>
-            <Text style={[styles.overlayHint, { color: theme.border }]}>잠시만 기다려 주세요</Text>
-          </View>
+          ))}
         </View>
+
+        {/* Content Card */}
+        <View style={[styles.contentCard, { backgroundColor: theme.card, shadowColor: (theme as any).shadow }]}>
+          {isProcessing ? (
+            <View style={styles.processingContainer}>
+              <ActivityIndicator size="large" color={theme.primary} />
+              <Text style={[styles.processingText, { color: theme.textSecondary }]}>{processingStatus}</Text>
+            </View>
+          ) : tabContent ? (
+            <Text style={[styles.contentText, { color: theme.text }]}>{tabContent}</Text>
+          ) : (
+            <View style={styles.emptyContentContainer}>
+              <MaterialIcons name="auto-fix-high" size={48} color={theme.border} />
+              <Text style={[styles.emptyContentText, { color: theme.textSecondary }]}>
+                {activeTab === 'transcript' ? '아직 변환된 텍스트가 없어요' : 
+                 activeTab === 'summary' ? '텍스트 변환 후 요약을 생성해보세요' : 
+                 '텍스트 변환 후 번역을 시작해보세요'}
+              </Text>
+              <TouchableOpacity 
+                style={[styles.actionButton, { backgroundColor: theme.primary }]}
+                onPress={activeTab === 'transcript' ? handleTranscribe : 
+                         activeTab === 'summary' ? handleSummarize : handleTranslate}
+              >
+                <Text style={styles.actionButtonText}>
+                  {activeTab === 'transcript' ? '음성 인식 시작' : 
+                   activeTab === 'summary' ? '요약 노트 만들기' : '번역하기'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </ScrollView>
+
+      {/* Title Edit Modal */}
+      <Modal visible={isEditingTitle} transparent animationType="fade">
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setIsEditingTitle(false)}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>노트 제목 변경</Text>
+            <TextInput
+              style={[styles.modalInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
+              value={editTitleDraft}
+              onChangeText={setEditTitleDraft}
+              autoFocus
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={[styles.modalButton, { borderColor: theme.border }]} onPress={() => setIsEditingTitle(false)}>
+                <Text style={{ color: theme.textSecondary }}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalButton, { backgroundColor: theme.primary, borderWidth: 0 }]} 
+                onPress={() => {
+                  if (editTitleDraft.trim()) updateRecording(id, { name: editTitleDraft.trim() });
+                  setIsEditingTitle(false);
+                }}
+              >
+                <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>저장</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
       </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 24,
     paddingBottom: 12,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  titleContainer: {
     flex: 1,
-    textAlign: 'center',
-    marginHorizontal: 12,
-  },
-  errorText: {
-    fontSize: 18,
-    textAlign: 'center',
-    marginTop: 100,
-  },
-  playerCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 20,
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
   },
-  playerInfo: {
-    flex: 1,
-    marginLeft: 16,
+  title: { fontSize: 18, fontWeight: '800' },
+  scrollContent: { padding: 24 },
+  playerCard: {
+    borderRadius: 32,
+    padding: 24,
+    marginBottom: 24,
+    elevation: 4,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 1,
+    shadowRadius: 16,
   },
-  playerTime: {
-    fontSize: 16,
-    fontWeight: '600',
-    fontVariant: ['tabular-nums'],
-    marginBottom: 8,
-  },
-  progressBar: {
-    height: 6,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
+  playerInfo: { marginBottom: 20 },
+  playerDate: { fontSize: 14, fontWeight: '600', marginBottom: 4 },
+  playerDuration: { fontSize: 32, fontWeight: '800' },
+  progressBarContainer: { marginBottom: 20 },
+  progressBarBackground: { height: 6, borderRadius: 3, overflow: 'hidden' },
+  progressBarFill: { height: '100%' },
+  timeLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
+  timeLabel: { fontSize: 12, fontWeight: '600' },
+  playerControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  speedButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 },
+  speedText: { fontSize: 14, fontWeight: '800' },
+  playButton: { width: 64, height: 64, borderRadius: 32, justifyContent: 'center', alignItems: 'center', elevation: 4 },
   tabContainer: {
     flexDirection: 'row',
-    marginTop: 20,
-    marginHorizontal: 20,
-    borderBottomWidth: 1,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  tabLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  contentArea: {
-    flex: 1,
-  },
-  contentContainer: {
-    padding: 20,
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    paddingTop: 60,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-  },
-  // ── Speed badge
-  speedBadge: {
-    marginLeft: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  speedText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  // ── AI overlay
-  overlayBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  overlayCard: {
-    width: 220,
+    padding: 6,
     borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    paddingVertical: 32,
-    paddingHorizontal: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    elevation: 10,
-  },
-  overlayStatus: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 18,
-    textAlign: 'center',
-  },
-  overlayHint: {
-    fontSize: 13,
-    marginTop: 6,
-    textAlign: 'center',
-  },
-  contentText: {
-    fontSize: 17,
-    lineHeight: 28,
-  },
-  emptyContent: {
-    alignItems: 'center',
-    paddingTop: 60,
-  },
-  emptyText: {
-    fontSize: 16,
-    marginTop: 16,
     marginBottom: 24,
-    textAlign: 'center',
   },
-  actionButton: {
-    paddingHorizontal: 28,
-    paddingVertical: 14,
-    borderRadius: 12,
-  },
-  actionButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  missingFileContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-  },
-  missingFileTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  missingFileDesc: {
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: 'center',
-  },
-  aiButtonWrapper: {
-    marginHorizontal: 20,
-    marginTop: 16,
-    borderRadius: 14,
-    overflow: 'hidden',
-    elevation: 4,
-    shadowColor: '#000',
+  tabButton: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 16 },
+  tabText: { fontSize: 15, fontWeight: '700' },
+  contentCard: {
+    borderRadius: 32,
+    padding: 28,
+    minHeight: 300,
+    elevation: 2,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
+    shadowOpacity: 1,
+    shadowRadius: 12,
   },
-  aiButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    gap: 8,
-  },
-  aiButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  // ── Skeletons
-  skeletonPlayer: {
-    height: 90,
-    opacity: 0.15,
-  },
-  skeletonContent: {
-    paddingTop: 10,
-    gap: 16,
-  },
-  skeletonLine: {
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#C2D68F',
-    opacity: 0.1,
-  },
-  skeletonDate: {
-    marginHorizontal: 20,
-    marginTop: -8,
-    marginBottom: 20,
-    height: 14,
-    width: 140,
-    borderRadius: 7,
-    backgroundColor: '#C2D68F',
-    opacity: 0.1,
-  },
+  contentText: { fontSize: 16, lineHeight: 28, letterSpacing: 0.3 },
+  processingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 },
+  processingText: { marginTop: 16, fontSize: 15, fontWeight: '600' },
+  emptyContentContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 },
+  emptyContentText: { marginTop: 16, fontSize: 15, textAlign: 'center', marginBottom: 24 },
+  actionButton: { paddingHorizontal: 24, paddingVertical: 14, borderRadius: 16, elevation: 2 },
+  actionButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  modalContent: { width: '100%', borderRadius: 32, padding: 32 },
+  modalTitle: { fontSize: 20, fontWeight: '800', marginBottom: 24, textAlign: 'center' },
+  modalInput: { height: 56, borderWidth: 1, borderRadius: 16, paddingHorizontal: 20, fontSize: 16, marginBottom: 32 },
+  modalButtons: { flexDirection: 'row', gap: 12 },
+  modalButton: { flex: 1, height: 56, borderRadius: 16, justifyContent: 'center', alignItems: 'center', borderWidth: 1 },
+  errorText: { textAlign: 'center', fontSize: 16 },
 });

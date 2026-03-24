@@ -269,3 +269,37 @@ export async function translateText(
 
   return (res.data as { translation: string }).translation;
 }
+
+/**
+ * Send text to backend → backend calls OpenAI → return short title string.
+ */
+export async function generateRecordingTitle(text: string): Promise<string> {
+  console.log('[Diagnostic] generateRecordingTitle: resolving backend URL');
+  const baseUrl = await getBackendUrl();
+  const headers = await buildHeaders();
+
+  if (!headers['x-app-key']) {
+    console.log('[Diagnostic] generateRecordingTitle failed: No app secret');
+    throw new Error('앱 시크릿 키가 설정되지 않았습니다. 설정 탭에서 입력해 주세요.');
+  }
+
+  const endpoint = `${baseUrl}/api/title`;
+  console.log(`[Diagnostic] generateRecordingTitle: POST ${endpoint}`);
+
+  const res = await axios.post(
+    endpoint,
+    { text },
+    { headers, timeout: 30_000, ...ACCEPT_ALL }
+  );
+  
+  console.log(`[Diagnostic] generateRecordingTitle: HTTP ${res.status}`);
+  if (res.status !== 200) {
+     console.log(`[Diagnostic] generateRecordingTitle error response: ${JSON.stringify(res.data)}`);
+  }
+  
+  assertStatus(res);
+
+  const finalTitle = (res.data as { title: string }).title;
+  console.log(`[Diagnostic] generateRecordingTitle success: '${finalTitle}'`);
+  return finalTitle;
+}
