@@ -1,8 +1,9 @@
 {
   "expo": {
-    "name": "강의 녹음",
+    "name": "강의 녹음기 - AI 요약 및 번역",
     "slug": "LectureRecorder",
     "version": "1.0.0",
+    "description": "강의를 녹음하고 AI를 통해 자동으로 텍스트 변환, 요약, 번역까지 제공하는 스마트 강의 도우미입니다.",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "lecturerecorder",
@@ -15,8 +16,10 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.hyunminkim.lecturerecorder",
       "buildNumber": "1",
+      "icon": "./assets/images/icon.png",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "강의를 녹음하기 위해 마이크 접근 권한이 필요합니다."
+        "NSMicrophoneUsageDescription": "강의 내용을 실시간으로 녹음하고 텍스트로 변환하기 위해 마이크 접근 권한이 필요합니다.",
+        "NSSpeechRecognitionUsageDescription": "음성을 텍스트로 변환하기 위해 음성 인식 권한이 필요합니다."
       }
     },
     "android": {

@@ -233,7 +233,9 @@ export default function SettingsScreen() {
   };
 
   const handlePrivacyPolicy = async () => {
-    await WebBrowser.openBrowserAsync('https://your-notion-link-or-gist.com', {
+    // Note: The user should host PRIVACY_POLICY.md somewhere (e.g. GitHub Gist or Notion) 
+    // and replace this link before final submission.
+    await WebBrowser.openBrowserAsync('https://github.com/kdssds03-ops/LectureRecorder/blob/main/PRIVACY_POLICY.md', {
       toolbarColor: (theme as any).oliveDeep || '#C2D68F',
       controlsColor: theme.primary,
       enableBarCollapsing: true,

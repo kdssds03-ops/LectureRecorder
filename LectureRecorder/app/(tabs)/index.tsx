@@ -30,6 +30,8 @@ export default function HomeScreen() {
 
   const [selectedFolderId, setSelectedFolderId] = React.useState<string | null>(null);
   const [isMoveModalVisible, setIsMoveModalVisible] = React.useState(false);
+  const [isNewFolderModalVisible, setIsNewFolderModalVisible] = React.useState(false);
+  const [newFolderName, setNewFolderName] = React.useState('');
   const [recordingToMove, setRecordingToMove] = React.useState<{id: string, folderId: string | null} | null>(null);
   const [snackbarVisible, setSnackbarVisible] = React.useState(false);
   const [snackbarMessage, setSnackbarMessage] = React.useState('');
@@ -39,22 +41,14 @@ export default function HomeScreen() {
   }, []);
 
   const handleNewFolder = () => {
-    if (Platform.OS === 'ios') {
-      Alert.prompt(
-        '새 폴더',
-        '생성할 폴더의 이름을 입력하세요',
-        (name) => { 
-          if (name?.trim()) {
-            addFolder(name.trim()); 
-          }
-        },
-        'plain-text',
-        '',
-        'default'
-      );
-    } else {
-      // Android placeholder
-      Alert.alert('알림', 'Android에서는 다음 버전에서 폴더 생성을 지원할 예정입니다.');
+    setIsNewFolderModalVisible(true);
+  };
+
+  const submitNewFolder = () => {
+    if (newFolderName.trim()) {
+      addFolder(newFolderName.trim());
+      setNewFolderName('');
+      setIsNewFolderModalVisible(false);
     }
   };
 
@@ -275,6 +269,46 @@ export default function HomeScreen() {
         }}
       />
 
+      {/* New Folder Modal */}
+      <Modal
+        visible={isNewFolderModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsNewFolderModalVisible(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setIsNewFolderModalVisible(false)}
+        >
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>새 폴더 생성</Text>
+            <TextInput
+              style={[styles.modalInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
+              placeholder="폴더 이름을 입력하세요"
+              placeholderTextColor={(theme as any).textSecondary}
+              value={newFolderName}
+              onChangeText={setNewFolderName}
+              autoFocus
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity 
+                style={[styles.modalButton, { borderColor: theme.border }]} 
+                onPress={() => setIsNewFolderModalVisible(false)}
+              >
+                <Text style={{ color: (theme as any).textSecondary }}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalButton, { backgroundColor: theme.primary, borderWeight: 0 }]} 
+                onPress={submitNewFolder}
+              >
+                <Text style={{ color: theme.background, fontWeight: '600' }}>생성</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       <Snackbar 
         visible={snackbarVisible}
         message={snackbarMessage}
@@ -416,12 +450,57 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 8,
+    shadowRadius: 6,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 20,
+    padding: 24,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  modalInput: {
+    height: 50,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    marginBottom: 24,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    height: 50,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
   },
 });

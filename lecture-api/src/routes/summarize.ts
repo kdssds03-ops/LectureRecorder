@@ -33,15 +33,24 @@ router.post('/', async (req: Request, res: Response) => {
         messages: [
           {
             role: 'system',
-            content:
-              '당신은 강의 내용을 정리해주는 전문가입니다. 강의 녹취록을 받으면 아래 형식으로 정리해 주세요:\n\n## 핵심 요약\n핵심 내용을 3~5줄로 요약\n\n## 주요 내용\n- 불릿 포인트로 정리\n\n## 키워드\n중요 키워드 나열',
+            content: `당신은 강의 요약 및 제목 선정 전문가입니다. 
+제공된 강의 텍스트를 분석하여 다음 두 가지를 수행하세요:
+1. 강의 내용을 한국어로 요약하세요. [핵심 요약], [주요 내용], [키워드] 섹션으로 나누어 작성하세요.
+2. 강의 내용을 대표하는 아주 짧고 간결한 제목(20자 이내)을 정하세요.
+
+반드시 다음 JSON 형식으로 응답하세요:
+{
+  "summary": "요약 내용...",
+  "suggestedName": "강의 제목"
+}`,
           },
           {
             role: 'user',
-            content: `다음 강의 녹취록을 요약해 주세요:\n\n${text}`,
+            content: text,
           },
         ],
-        temperature: 0.3,
+        response_format: { type: "json_object" },
+        temperature: 0.5,
         max_tokens: 2000,
       },
       {
@@ -49,12 +58,15 @@ router.post('/', async (req: Request, res: Response) => {
           Authorization: `Bearer ${config.openAiKey}`,
           'Content-Type': 'application/json',
         },
-        timeout: 60_000, // 60s — GPT can take a while on long text
+        timeout: 60_000,
       }
     );
 
-    const summary: string = response.data.choices[0].message.content;
-    res.json({ summary });
+    const result = JSON.parse(response.data.choices[0].message.content);
+    res.json({ 
+      summary: result.summary, 
+      suggestedName: result.suggestedName 
+    });
   } catch (err: any) {
     console.error('[summarize] Error:', err.response?.data ?? err.message);
     res.status(500).json({ error: '요약 생성에 실패했습니다.' });
