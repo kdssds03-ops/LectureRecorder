@@ -221,6 +221,46 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
 }
 
 /**
+ * Quick transcription for real-time updates (30s chunks).
+ * Returns the text directly.
+ */
+export async function quickTranscribe(audioUri: string): Promise<string> {
+  const baseUrl = await getBackendUrl();
+  const secret = await getAppSecret();
+
+  if (!secret) {
+    throw new Error('앱 시크릿 키가 설정되지 않았습니다.');
+  }
+
+  const formData = new FormData();
+  formData.append('audio', {
+    uri: audioUri,
+    type: 'audio/m4a',
+    name: 'quick_audio.m4a',
+  } as unknown as Blob);
+
+  try {
+    const res = await axios.post(
+      `${baseUrl}/api/transcribe/quick`,
+      formData,
+      {
+        headers: {
+          'x-app-key': secret,
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: 30_000,
+        ...ACCEPT_ALL,
+      }
+    );
+    assertStatus(res);
+    return res.data.text ?? '';
+  } catch (err: any) {
+    console.log(`[quickTranscribe] failed: ${err.message}`);
+    return ''; // Silent fail for real-time updates
+  }
+}
+
+/**
  * Send transcript text to backend → backend calls OpenAI → return summary + suggested title.
  * Returns { summary, suggestedName } where suggestedName is a concise title (≤20 chars).
  */
