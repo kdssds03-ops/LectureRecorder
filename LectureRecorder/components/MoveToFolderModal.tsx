@@ -1,8 +1,9 @@
 import React from 'react';
 import { Modal, View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, Feather } from '@expo/vector-icons';
 import { useFolderStore } from '@/store/useFolderStore';
 import { Colors } from '@/constants/Colors';
+import { Spacing, Radius, Typography, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 interface MoveToFolderModalProps {
@@ -42,30 +43,34 @@ export default function MoveToFolderModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
-        <View style={[styles.content, { backgroundColor: theme.card }]}>
-          <View style={styles.indicator} />
+        <View style={[styles.content, { backgroundColor: theme.surface, ...Shadows.medium }]}>
+          <View style={[styles.indicator, { backgroundColor: theme.border }]} />
+          
           <View style={styles.header}>
             <Text style={[styles.title, { color: theme.text }]}>폴더 이동</Text>
-            <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: (theme as any).oliveLight }]}>
-              <MaterialIcons name="close" size={20} color={theme.primary} />
+            <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: theme.unselectedChip }]}>
+              <Feather name="x" size={20} color={theme.textSecondary} />
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.list} showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
             <TouchableOpacity
               style={[
                 styles.folderItem,
-                selectedFolderId === null && { backgroundColor: (theme as any).oliveLight, borderColor: theme.primary }
+                selectedFolderId === null 
+                  ? { backgroundColor: theme.accent, borderColor: theme.primary }
+                  : { backgroundColor: theme.surface, borderColor: theme.border }
               ]}
               onPress={() => handleSelect(null)}
+              activeOpacity={0.7}
             >
-              <View style={[styles.iconBox, { backgroundColor: selectedFolderId === null ? theme.primary : (theme as any).oliveLight }]}>
-                <MaterialIcons name="folder-open" size={22} color={selectedFolderId === null ? "#FFFFFF" : theme.primary} />
+              <View style={[styles.iconBox, { backgroundColor: selectedFolderId === null ? theme.primary : theme.unselectedChip }]}>
+                <Feather name="folder" size={20} color={selectedFolderId === null ? "#FFFFFF" : theme.textSecondary} />
               </View>
-              <Text style={[styles.folderName, { color: theme.text }, selectedFolderId === null && { fontWeight: '800' }]}>
-                전체 (폴더 없음)
+              <Text style={[styles.folderName, { color: theme.text }, selectedFolderId === null && { fontWeight: '700' }]}>
+                기본 노트 (폴더 없음)
               </Text>
-              {selectedFolderId === null && <MaterialIcons name="check-circle" size={24} color={theme.primary} />}
+              {selectedFolderId === null && <Feather name="check-circle" size={20} color={theme.primary} />}
             </TouchableOpacity>
 
             {folders.map((folder) => {
@@ -75,17 +80,20 @@ export default function MoveToFolderModal({
                   key={folder.id}
                   style={[
                     styles.folderItem,
-                    isSelected && { backgroundColor: (theme as any).oliveLight, borderColor: theme.primary }
+                    isSelected 
+                      ? { backgroundColor: theme.accent, borderColor: theme.primary }
+                      : { backgroundColor: theme.surface, borderColor: theme.border }
                   ]}
                   onPress={() => handleSelect(folder.id)}
+                  activeOpacity={0.7}
                 >
-                  <View style={[styles.iconBox, { backgroundColor: isSelected ? theme.primary : (theme as any).oliveLight }]}>
-                    <MaterialIcons name="folder" size={22} color={isSelected ? "#FFFFFF" : theme.primary} />
+                  <View style={[styles.iconBox, { backgroundColor: isSelected ? theme.primary : theme.unselectedChip }]}>
+                    <Feather name="folder" size={20} color={isSelected ? "#FFFFFF" : theme.textSecondary} />
                   </View>
-                  <Text style={[styles.folderName, { color: theme.text }, isSelected && { fontWeight: '800' }]}>
+                  <Text style={[styles.folderName, { color: theme.text }, isSelected && { fontWeight: '700' }]}>
                     {folder.name}
                   </Text>
-                  {isSelected && <MaterialIcons name="check-circle" size={24} color={theme.primary} />}
+                  {isSelected && <Feather name="check-circle" size={20} color={theme.primary} />}
                 </TouchableOpacity>
               );
             })}
@@ -99,65 +107,64 @@ export default function MoveToFolderModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.3)',
     justifyContent: 'flex-end',
   },
   content: {
-    borderTopLeftRadius: 40,
-    borderTopRightRadius: 40,
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
     minHeight: '45%',
     maxHeight: '85%',
-    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
-    paddingHorizontal: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : Spacing.xl,
+    paddingHorizontal: Spacing.screenPadding,
   },
   indicator: {
-    width: 40,
+    width: 48,
     height: 5,
-    backgroundColor: '#E2E8F0',
-    borderRadius: 3,
+    borderRadius: Radius.pill,
     alignSelf: 'center',
-    marginTop: 12,
+    marginTop: Spacing.md,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 24,
+    paddingVertical: Spacing.lg,
   },
   title: {
-    fontSize: 22,
-    fontWeight: '800',
+    ...Typography.titleMedium,
   },
   closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: Radius.pill,
     justifyContent: 'center',
     alignItems: 'center',
   },
   list: {
     flex: 1,
   },
+  listContent: {
+    paddingBottom: Spacing.lg,
+  },
   folderItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    borderRadius: 20,
-    marginBottom: 12,
+    padding: Spacing.md,
+    borderRadius: Radius.lg,
+    marginBottom: Spacing.sm,
     borderWidth: 1,
-    borderColor: 'transparent',
   },
   iconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 40,
+    height: 40,
+    borderRadius: Radius.md,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: Spacing.md,
   },
   folderName: {
     flex: 1,
-    fontSize: 17,
-    fontWeight: '600',
+    ...Typography.bodyMedium,
   },
 });

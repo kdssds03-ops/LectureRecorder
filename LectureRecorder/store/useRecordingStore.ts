@@ -13,6 +13,7 @@ export interface RecordingMeta {
   name: string;
   titleSource?: 'default' | 'ai' | 'user';
   uri: string;
+  chunkUris?: string[];
   duration: number; // in milliseconds
   createdAt: number;
   folderId: string | null;  // which folder this recording belongs to

@@ -82,6 +82,13 @@ export default function RootLayout() {
             }}
           />
           <Stack.Screen
+            name="settings"
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
             name="detail/[id]"
             options={{
               headerShown: false,

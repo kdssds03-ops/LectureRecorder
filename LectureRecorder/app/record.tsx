@@ -1,13 +1,14 @@
-import { quickTranscribe } from '@/api/aiService';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import { RecordingMeta, useRecordingStore } from '@/store/useRecordingStore';
-import { MaterialIcons } from '@expo/vector-icons';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, Alert, Linking, Animated, ScrollView, ActivityIndicator } from 'react-native';
+import { useRouter } from 'expo-router';
+import { MaterialIcons, Feather } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Linking, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useRecordingStore, RecordingMeta } from '@/store/useRecordingStore';
+import { quickTranscribe } from '@/api/aiService';
+import { Colors } from '@/constants/Colors';
+import { Spacing, Radius, Typography, Shadows } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function RecordScreen() {
   const router = useRouter();
@@ -16,15 +17,19 @@ export default function RecordScreen() {
   const { addRecording } = useRecordingStore();
 
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const recordingRef = useRef<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const isRecordingRef = useRef(false);
   const [duration, setDuration] = useState(0);
   const [realtimeTranscript, setRealtimeTranscript] = useState<string[]>([]);
+  const transcriptRef = useRef<string[]>([]);
+  const chunkUrisRef = useRef<string[]>([]);
   const [isTranscribing, setIsTranscribing] = useState(false);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Duration timer
+  // Duration timer & pulsing animation
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
     if (isRecording) {
@@ -35,7 +40,7 @@ export default function RecordScreen() {
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
-            toValue: 1.2,
+            toValue: 1.15,
             duration: 1000,
             useNativeDriver: true,
           }),
@@ -52,35 +57,47 @@ export default function RecordScreen() {
     return () => clearInterval(interval);
   }, [isRecording]);
 
-  // Real-time transcription timer (every 30 seconds)
+  const cycleChunk = async () => {
+    if (!isRecordingRef.current) return;
+    const currentRec = recordingRef.current;
+    if (!currentRec) return;
+
+    try {
+      await currentRec.stopAndUnloadAsync();
+      const oldUri = currentRec.getURI();
+      if (oldUri) chunkUrisRef.current.push(oldUri);
+
+      if (isRecordingRef.current) {
+        const { recording: newRec } = await Audio.Recording.createAsync(
+          Audio.RecordingOptionsPresets.HIGH_QUALITY
+        );
+        recordingRef.current = newRec;
+        setRecording(newRec);
+      }
+
+      if (oldUri) {
+        setIsTranscribing(true);
+        const text = await quickTranscribe(oldUri);
+        if (text && text.trim()) {
+          transcriptRef.current.push(text);
+          setRealtimeTranscript([...transcriptRef.current]);
+        }
+        setIsTranscribing(false);
+      }
+    } catch (err) {
+      console.error('Failed to cycle chunk', err);
+    }
+  };
+
   useEffect(() => {
     let transInterval: ReturnType<typeof setInterval>;
     if (isRecording) {
-      transInterval = setInterval(async () => {
-        if (recording) {
-          try {
-            setIsTranscribing(true);
-            // Get current recording URI without stopping
-            const status = await recording.getStatusAsync();
-            if (status.canRecord) {
-              const uri = recording.getURI();
-              if (uri) {
-                const text = await quickTranscribe(uri);
-                if (text && text.trim()) {
-                  setRealtimeTranscript(prev => [...prev, text]);
-                }
-              }
-            }
-          } catch (err) {
-            console.error('Real-time transcription failed', err);
-          } finally {
-            setIsTranscribing(false);
-          }
-        }
-      }, 30000); // 30 seconds
+      transInterval = setInterval(() => {
+        cycleChunk();
+      }, 30000);
     }
     return () => clearInterval(transInterval);
-  }, [isRecording, recording]);
+  }, [isRecording]);
 
   const formatTime = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);
@@ -108,11 +125,18 @@ export default function RecordScreen() {
         playsInSilentModeIOS: true,
       });
 
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      setRecording(recording);
-      setIsRecording(true);
-      setDuration(0);
+      chunkUrisRef.current = [];
+      transcriptRef.current = [];
       setRealtimeTranscript([]);
+      
+      const { recording: newRec } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      recordingRef.current = newRec;
+      setRecording(newRec);
+      setIsRecording(true);
+      isRecordingRef.current = true;
+      setDuration(0);
     } catch (err) {
       console.error('Failed to start recording', err);
       Alert.alert('녹음 시작 실패', '녹음을 시작할 수 없습니다. 잠시 후 다시 시도해 주세요.');
@@ -120,22 +144,44 @@ export default function RecordScreen() {
   };
 
   const stopRecording = async () => {
-    if (!recording) return;
+    isRecordingRef.current = false;
+    setIsRecording(false);
+    
+    const currentRec = recordingRef.current;
+    if (!currentRec) return;
+    
     try {
-      setIsRecording(false);
-      await recording.stopAndUnloadAsync();
+      await currentRec.stopAndUnloadAsync();
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-      const uri = recording.getURI();
+      
+      const finalUri = currentRec.getURI();
+      if (finalUri) chunkUrisRef.current.push(finalUri);
 
-      if (uri) {
+      // Transcribe final piece
+      if (finalUri) {
+         setIsTranscribing(true);
+         const text = await quickTranscribe(finalUri);
+         if (text && text.trim()) {
+           transcriptRef.current.push(text);
+           setRealtimeTranscript([...transcriptRef.current]);
+         }
+         setIsTranscribing(false);
+      }
+
+      const fullString = transcriptRef.current.join('\n\n');
+      const rootUri = chunkUrisRef.current[0] || finalUri || '';
+
+      if (rootUri) {
         const newRecording: RecordingMeta = {
           id: Date.now().toString(),
           name: `강의 기록 ${new Date().toLocaleDateString()}`,
           titleSource: 'default',
-          uri,
+          uri: rootUri,
+          chunkUris: [...chunkUrisRef.current],
           duration,
           createdAt: Date.now(),
           folderId: null,
+          transcript: fullString
         };
         addRecording(newRecording);
         router.replace(`/(tabs)`);
@@ -156,12 +202,14 @@ export default function RecordScreen() {
             text: '취소하기',
             style: 'destructive',
             onPress: async () => {
-              try {
-                await recording?.stopAndUnloadAsync();
-                await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-              } catch (_) { }
-              setRecording(null);
+              isRecordingRef.current = false;
               setIsRecording(false);
+              try {
+                await recordingRef.current?.stopAndUnloadAsync();
+                await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+              } catch (_) {}
+              recordingRef.current = null;
+              setRecording(null);
               router.back();
             },
           },
@@ -177,90 +225,70 @@ export default function RecordScreen() {
       <View style={styles.header}>
         <TouchableOpacity
           onPress={handleClose}
-          style={[styles.closeButton, { backgroundColor: theme.card, borderColor: theme.border }]}
+          style={[styles.circularButton, { backgroundColor: theme.surface, ...Shadows.soft }]}
         >
-          <MaterialIcons name="close" size={24} color={theme.text} />
+          <Feather name="x" size={24} color={theme.text} />
         </TouchableOpacity>
-        <Text style={[styles.title, { color: theme.text }]}>오늘의 강의 기록</Text>
-        <View style={{ width: 44 }} />
       </View>
 
       <View style={styles.content}>
-        <View style={styles.visualizerContainer}>
-          <Animated.View
-            style={[
-              styles.pulseCircle,
-              {
-                backgroundColor: isRecording ? (theme as any).accent : (theme as any).oliveLight,
-                transform: [{ scale: pulseAnim }]
-              }
-            ]}
-          />
-          <View style={[styles.mainCircle, { backgroundColor: isRecording ? theme.primary : (theme as any).secondary }]}>
-            <MaterialIcons name="mic" size={64} color="#FFFFFF" />
-          </View>
-        </View>
-
-        <View style={styles.timerContainer}>
+        <View style={styles.timeStatusContainer}>
           <Text style={[styles.timer, { color: theme.text }]}>
             {formatTime(duration)}
           </Text>
-          <Text style={[styles.timerLabel, { color: theme.textSecondary }]}>
-            {isRecording ? '강의를 기록하고 있습니다...' : '준비가 되면 버튼을 눌러주세요'}
-          </Text>
+          {isRecording && (
+            <Animated.View style={[styles.statusPill, { backgroundColor: theme.accent, transform: [{ scale: pulseAnim }] }]}>
+              <MaterialIcons name="mic" size={18} color={theme.primary} />
+            </Animated.View>
+          )}
         </View>
 
-        {isRecording && (
-          <View style={[styles.transcriptContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={styles.transcriptHeader}>
-              <Text style={[styles.transcriptTitle, { color: theme.text }]}>실시간 전사 내용</Text>
-              {isTranscribing && (
-                <Text style={[styles.transcribingText, { color: theme.primary }]}>인식 중...</Text>
-              )}
-            </View>
-            <ScrollView
-              ref={scrollViewRef}
-              style={styles.transcriptScroll}
-              onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
-            >
-              {realtimeTranscript.length === 0 ? (
-                <Text style={[styles.emptyTranscript, { color: theme.textSecondary }]}>
-                  30초마다 전사된 내용이 여기에 표시됩니다.
+        <View style={[styles.transcriptCard, { backgroundColor: theme.surface, borderColor: theme.border, ...Shadows.medium }]}>
+          <Text style={[styles.cardTitle, { color: theme.textSecondary }]}>Real-time Transcription</Text>
+          <ScrollView 
+            ref={scrollViewRef}
+            style={styles.transcriptScroll}
+            contentContainerStyle={styles.transcriptContentContainer}
+            showsVerticalScrollIndicator={false}
+            onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+          >
+            {realtimeTranscript.length === 0 ? (
+              <Text style={[styles.emptyTranscript, { color: theme.textTertiary }]}>
+                {isRecording ? '듣고 있습니다...' : '강의 녹음을 시작해주세요.'}
+              </Text>
+            ) : (
+              realtimeTranscript.map((text, index) => (
+                <Text key={index} style={[styles.transcriptText, { color: theme.text }]}>
+                  {text}
                 </Text>
-              ) : (
-                realtimeTranscript.map((text, index) => (
-                  <Text key={index} style={[styles.transcriptText, { color: theme.text }]}>
-                    {text}
-                  </Text>
-                ))
-              )}
-            </ScrollView>
-          </View>
-        )}
+              ))
+            )}
+          </ScrollView>
+          {isTranscribing && (
+            <View style={styles.processingRow}>
+              <ActivityIndicator size="small" color={theme.textTertiary} />
+              <Text style={[styles.processingText, { color: theme.textTertiary }]}>Processing...</Text>
+            </View>
+          )}
+        </View>
       </View>
 
       <View style={styles.controls}>
         {!isRecording ? (
           <TouchableOpacity
-            style={[styles.recordButton, { shadowColor: theme.primary }]}
+            style={[styles.mainButton, { backgroundColor: theme.primary, ...Shadows.floating }]}
             onPress={startRecording}
+            activeOpacity={0.8}
           >
-            <LinearGradient
-              colors={[(theme as any).secondary, theme.primary]}
-              style={styles.buttonGradient}
-            >
-              <Text style={styles.buttonText}>녹음 시작하기</Text>
-            </LinearGradient>
+            <MaterialIcons name="mic" size={36} color="#FFFFFF" />
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={[styles.stopButton, { backgroundColor: theme.error, shadowColor: theme.error }]}
+            style={[styles.mainButton, styles.stopButton, { backgroundColor: theme.surface, borderColor: theme.border, ...Shadows.floating }]}
             onPress={stopRecording}
+            activeOpacity={0.8}
           >
-            <View style={styles.buttonGradient}>
-              <MaterialIcons name="stop" size={32} color="#FFFFFF" />
-              <Text style={styles.buttonText}>기록 완료</Text>
-            </View>
+            <View style={[styles.stopSquare, { backgroundColor: theme.error }]} />
           </TouchableOpacity>
         )}
       </View>
@@ -274,135 +302,101 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 24,
+    justifyContent: 'flex-start',
+    paddingHorizontal: Spacing.screenPadding,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.md,
   },
-  closeButton: {
+  circularButton: {
     width: 44,
     height: 44,
-    borderRadius: 15,
-    borderWidth: 1,
+    borderRadius: Radius.pill,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '800',
   },
   content: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingBottom: 20,
+    paddingHorizontal: Spacing.screenPadding,
+    paddingBottom: Spacing.xl,
+    paddingTop: Spacing.xl,
   },
-  visualizerContainer: {
-    justifyContent: 'center',
+  timeStatusContainer: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 30,
-    marginTop: 20,
-  },
-  pulseCircle: {
-    position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    opacity: 0.5,
-  },
-  mainCircle: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 10,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 15,
-  },
-  timerContainer: {
-    alignItems: 'center',
-    marginBottom: 30,
+    justifyContent: 'space-between',
+    marginBottom: Spacing.xl,
+    paddingHorizontal: Spacing.sm,
   },
   timer: {
+    ...Typography.titleLarge,
     fontSize: 48,
-    fontWeight: '800',
-    letterSpacing: 2,
-    marginBottom: 8,
+    fontWeight: '300',
+    fontVariant: ['tabular-nums'],
   },
-  timerLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  transcriptContainer: {
-    width: '85%',
-    height: 200,
-    borderRadius: 24,
-    borderWidth: 1,
-    padding: 20,
-    marginTop: 10,
-  },
-  transcriptHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  statusPill: {
+    width: 48,
+    height: 48,
+    borderRadius: Radius.pill,
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 10,
   },
-  transcriptTitle: {
-    fontSize: 14,
-    fontWeight: '700',
+  transcriptCard: {
+    flex: 1,
+    borderRadius: Radius.xl,
+    padding: Spacing.xl,
+    paddingBottom: Spacing.md,
+    borderWidth: 1,
   },
-  transcribingText: {
-    fontSize: 12,
-    fontWeight: '600',
+  cardTitle: {
+    ...Typography.caption,
+    marginBottom: Spacing.md,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   transcriptScroll: {
     flex: 1,
   },
+  transcriptContentContainer: {
+    paddingBottom: Spacing.md,
+  },
   transcriptText: {
-    fontSize: 15,
-    lineHeight: 24,
-    marginBottom: 12,
+    ...Typography.bodyLarge,
+    lineHeight: 28,
+    marginBottom: Spacing.md,
   },
   emptyTranscript: {
-    fontSize: 13,
+    ...Typography.bodyLarge,
+    marginTop: Spacing.xxl,
     textAlign: 'center',
-    marginTop: 40,
-    lineHeight: 20,
+    fontStyle: 'italic',
+  },
+  processingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingTop: Spacing.sm,
+    gap: Spacing.xs,
+  },
+  processingText: {
+    ...Typography.caption,
   },
   controls: {
-    paddingHorizontal: 40,
+    alignItems: 'center',
     paddingBottom: 60,
   },
-  recordButton: {
-    height: 72,
-    borderRadius: 24,
-    elevation: 8,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    overflow: 'hidden',
-  },
-  stopButton: {
-    height: 72,
-    borderRadius: 24,
-    elevation: 8,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    overflow: 'hidden',
-  },
-  buttonGradient: {
-    flex: 1,
-    flexDirection: 'row',
+  mainButton: {
+    width: 80,
+    height: 80,
+    borderRadius: Radius.pill,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
   },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '800',
+  stopButton: {
+    borderWidth: 1,
+  },
+  stopSquare: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
   },
 });

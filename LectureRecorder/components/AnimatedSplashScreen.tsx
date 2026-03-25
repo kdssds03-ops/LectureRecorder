@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, Text, View, Dimensions } from 'react-native';
+import { StyleSheet, View, Dimensions, Image } from 'react-native';
 import Animated, { 
   useSharedValue, 
   useAnimatedStyle, 
@@ -10,35 +10,31 @@ import Animated, {
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 interface AnimatedSplashScreenProps {
   onAnimationFinish: (finished: boolean) => void;
 }
 
 export default function AnimatedSplashScreen({ onAnimationFinish }: AnimatedSplashScreenProps) {
-  const colorScheme = useColorScheme() ?? 'dark';
-  const theme = Colors[colorScheme];
-  
+  const colorScheme = useColorScheme() ?? 'light';
   const opacity = useSharedValue(0);
-  const scale = useSharedValue(0.8);
+  const scale = useSharedValue(0.95);
 
   useEffect(() => {
-    // Start animation sequence
     opacity.value = withTiming(1, { 
-      duration: 1000, 
+      duration: 600, 
       easing: Easing.out(Easing.exp) 
     });
     
     scale.value = withTiming(1, { 
-      duration: 1000, 
+      duration: 600, 
       easing: Easing.out(Easing.exp) 
     }, (finished) => {
       if (finished) {
-        // Delay slightly before finishing to let the user see the logo
         setTimeout(() => {
           runOnJS(onAnimationFinish)(true);
-        }, 800);
+        }, 1200);
       }
     });
   }, []);
@@ -48,13 +44,15 @@ export default function AnimatedSplashScreen({ onAnimationFinish }: AnimatedSpla
     transform: [{ scale: scale.value }],
   }));
 
+  // Matches the app.json native splash background color
   return (
-    <View style={[styles.container, { backgroundColor: '#121212' }]}>
+    <View style={[styles.container, { backgroundColor: '#F1F5E9' }]}>
       <Animated.View style={[styles.logoContainer, animatedStyle]}>
-        <Text style={[styles.logoText, { color: (theme as any).oliveDeep || '#C2D68F' }]}>
-          Lecture{"\n"}Recorder
-        </Text>
-        <View style={[styles.underline, { backgroundColor: (theme as any).oliveDeep || '#C2D68F' }]} />
+        <Image 
+          source={require('../assets/images/splash.png')}
+          style={styles.image}
+          resizeMode="contain"
+        />
       </Animated.View>
     </View>
   );
@@ -68,18 +66,13 @@ const styles = StyleSheet.create({
   },
   logoContainer: {
     alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    height: '100%',
   },
-  logoText: {
-    fontSize: 48,
-    fontWeight: '800',
-    letterSpacing: -1,
-    textAlign: 'center',
-    lineHeight: 52,
-  },
-  underline: {
-    width: 60,
-    height: 6,
-    borderRadius: 3,
-    marginTop: 16,
+  image: {
+    width: '100%',
+    height: '100%',
   },
 });
+
