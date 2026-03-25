@@ -14,10 +14,11 @@ export default function RecordScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  const { addRecording } = useRecordingStore();
+  const { addRecording, updateRecording, removeRecording } = useRecordingStore();
 
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
+  const activeRecordingIdRef = useRef<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const isRecordingRef = useRef(false);
   const [duration, setDuration] = useState(0);
@@ -90,6 +91,12 @@ export default function RecordScreen() {
           if (text && text.trim()) {
             transcriptRef.current.push(text);
             setRealtimeTranscript([...transcriptRef.current]);
+            
+            if (activeRecordingIdRef.current) {
+              updateRecording(activeRecordingIdRef.current, { 
+                transcript: transcriptRef.current.join('\n\n') 
+              });
+            }
           }
         } else {
           console.error('[Transcription] chunk failed permanently');
@@ -175,6 +182,23 @@ export default function RecordScreen() {
       const { recording: newRec } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
+
+      const recordingId = Date.now().toString();
+      activeRecordingIdRef.current = recordingId;
+
+      // Create initial session record in store
+      const initialRecording: RecordingMeta = {
+        id: recordingId,
+        name: `강의 기록 ${new Date().toLocaleDateString()}`,
+        titleSource: 'default',
+        uri: newRec.getURI() || '',
+        duration: 0,
+        createdAt: Date.now(),
+        folderId: null,
+        transcript: ''
+      };
+      addRecording(initialRecording);
+
       recordingRef.current = newRec;
       setRecording(newRec);
       setIsRecording(true);
@@ -215,19 +239,14 @@ export default function RecordScreen() {
       const fullString = transcriptRef.current.join('\n\n');
       const rootUri = chunkUrisRef.current[0] || finalUri || '';
 
-      if (rootUri) {
-        const newRecording: RecordingMeta = {
-          id: Date.now().toString(),
-          name: `강의 기록 ${new Date().toLocaleDateString()}`,
-          titleSource: 'default',
+      if (activeRecordingIdRef.current) {
+        updateRecording(activeRecordingIdRef.current, {
           uri: rootUri,
           chunkUris: [...chunkUrisRef.current],
           duration,
-          createdAt: Date.now(),
-          folderId: null,
           transcript: fullString
-        };
-        addRecording(newRecording);
+        });
+        activeRecordingIdRef.current = null;
         router.replace(`/(tabs)`);
       }
     } catch (err) {
@@ -248,7 +267,13 @@ export default function RecordScreen() {
             onPress: async () => {
               isRecordingRef.current = false;
               setIsRecording(false);
+              const idToDelete = activeRecordingIdRef.current;
+              activeRecordingIdRef.current = null;
+              
               try {
+                if (idToDelete) {
+                  await removeRecording(idToDelete);
+                }
                 await recordingRef.current?.stopAndUnloadAsync();
                 await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
               } catch (_) {}
