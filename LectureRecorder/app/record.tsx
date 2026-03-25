@@ -70,13 +70,47 @@ export default function RecordScreen() {
         );
         return;
       }
+
+      // iOS에서 오디오 세션 활성화 충돌이 날 때를 대비해 세션을 초기화한 뒤 재시도합니다.
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      });
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
       });
 
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      setRecording(recording);
+      let createdRecording: Audio.Recording;
+      try {
+        const { recording } = await Audio.Recording.createAsync(
+          Audio.RecordingOptionsPresets.HIGH_QUALITY
+        );
+        createdRecording = recording;
+      } catch (firstError) {
+        // 첫 시도 실패 시 세션을 다시 활성화하고 1회 재시도합니다.
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
+
+        const { recording } = await Audio.Recording.createAsync(
+          Audio.RecordingOptionsPresets.HIGH_QUALITY
+        );
+        createdRecording = recording;
+        console.warn('Recording retried after initial prepare failure:', firstError);
+      }
+
+      setRecording(createdRecording);
       setIsRecording(true);
       setDuration(0);
     } catch (err) {
