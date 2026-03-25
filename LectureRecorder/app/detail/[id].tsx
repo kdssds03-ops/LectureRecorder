@@ -28,16 +28,16 @@ const API_ERROR_MESSAGES: Record<ReturnType<typeof classifyApiError>, string> = 
 };
 
 export default function DetailScreen() {
-  const { id, name: paramName, duration: paramDuration, createdAt: paramCreatedAt } = useLocalSearchParams<{ 
-    id: string; 
-    name?: string; 
-    duration?: string; 
-    createdAt?: string; 
+  const { id, name: paramName, duration: paramDuration, createdAt: paramCreatedAt } = useLocalSearchParams<{
+    id: string;
+    name?: string;
+    duration?: string;
+    createdAt?: string;
   }>();
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  
+
   const recording = useRecordingStore((state) => state.recordings.find((r) => r.id === id));
   const updateRecording = useRecordingStore((state) => state.updateRecording);
   const fetchSummary = useRecordingStore((state) => state.fetchSummary);
@@ -50,7 +50,7 @@ export default function DetailScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('transcript');
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
-  
+
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitleDraft, setEditTitleDraft] = useState('');
 
@@ -171,11 +171,13 @@ export default function DetailScreen() {
   const getTabContent = () => {
     if (!recording) return null;
     switch (activeTab) {
-      case 'transcript': return recording.transcript || null;
-      case 'summary': 
+      case 'transcript':
+        return recording.transcript || null;
+      case 'summary':
         if (!recording.summary) return null;
         return typeof recording.summary === 'object' ? (recording.summary as any).summary : recording.summary;
-      case 'translation': return recording.translation || null;
+      case 'translation':
+        return recording.translation || null;
     }
   };
 
@@ -185,20 +187,22 @@ export default function DetailScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
-        <TouchableOpacity 
-          onPress={() => router.back()} 
+        <TouchableOpacity
+          onPress={() => router.back()}
           style={[styles.backButton, { backgroundColor: theme.card, borderColor: theme.border }]}
         >
           <MaterialIcons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.titleContainer} 
+        <TouchableOpacity
+          style={styles.titleContainer}
           onPress={() => {
             setEditTitleDraft(displayName);
             setIsEditingTitle(true);
           }}
         >
-          <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>{displayName}</Text>
+          <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>
+            {displayName}
+          </Text>
           <MaterialIcons name="edit" size={14} color={theme.primary} style={{ marginLeft: 4 }} />
         </TouchableOpacity>
         <View style={{ width: 44 }} />
@@ -211,7 +215,7 @@ export default function DetailScreen() {
             <Text style={[styles.playerDate, { color: theme.textSecondary }]}>{formatDate(displayDate)}</Text>
             <Text style={[styles.playerDuration, { color: theme.text }]}>{formatTime(displayDuration)}</Text>
           </View>
-          
+
           <View style={styles.progressBarContainer}>
             <View style={[styles.progressBarBackground, { backgroundColor: theme.border }]}>
               <View style={[styles.progressBarFill, { width: `${progressWidth}%`, backgroundColor: theme.primary }]} />
@@ -226,11 +230,11 @@ export default function DetailScreen() {
             <TouchableOpacity onPress={cycleSpeed} style={[styles.speedButton, { backgroundColor: (theme as any).oliveLight }]}>
               <Text style={[styles.speedText, { color: theme.primary }]}>{playbackRate}x</Text>
             </TouchableOpacity>
-            
+
             <TouchableOpacity onPress={togglePlayback} style={[styles.playButton, { backgroundColor: theme.primary }]}>
-              <MaterialIcons name={isPlaying ? "pause" : "play-arrow"} size={36} color="#FFFFFF" />
+              <MaterialIcons name={isPlaying ? 'pause' : 'play-arrow'} size={36} color="#FFFFFF" />
             </TouchableOpacity>
-            
+
             <View style={{ width: 50 }} />
           </View>
         </View>
@@ -243,14 +247,16 @@ export default function DetailScreen() {
               onPress={() => setActiveTab(tab)}
               style={[
                 styles.tabButton,
-                activeTab === tab && { backgroundColor: theme.card, shadowColor: (theme as any).shadow }
+                activeTab === tab && { backgroundColor: theme.card, shadowColor: (theme as any).shadow },
               ]}
             >
-              <Text style={[
-                styles.tabText,
-                { color: theme.textSecondary },
-                activeTab === tab && { color: theme.primary, fontWeight: '800' }
-              ]}>
+              <Text
+                style={[
+                  styles.tabText,
+                  { color: theme.textSecondary },
+                  activeTab === tab && { color: theme.primary, fontWeight: '800' },
+                ]}
+              >
                 {tab === 'transcript' ? '기록' : tab === 'summary' ? '요약' : '번역'}
               </Text>
             </TouchableOpacity>
@@ -270,18 +276,18 @@ export default function DetailScreen() {
             <View style={styles.emptyContentContainer}>
               <MaterialIcons name="auto-fix-high" size={48} color={theme.border} />
               <Text style={[styles.emptyContentText, { color: theme.textSecondary }]}>
-                {activeTab === 'transcript' ? '아직 변환된 텍스트가 없어요' : 
-                 activeTab === 'summary' ? '텍스트 변환 후 요약을 생성해보세요' : 
-                 '텍스트 변환 후 번역을 시작해보세요'}
+                {activeTab === 'transcript'
+                  ? '아직 변환된 텍스트가 없어요'
+                  : activeTab === 'summary'
+                    ? '텍스트 변환 후 요약을 생성해보세요'
+                    : '텍스트 변환 후 번역을 시작해보세요'}
               </Text>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.actionButton, { backgroundColor: theme.primary }]}
-                onPress={activeTab === 'transcript' ? handleTranscribe : 
-                         activeTab === 'summary' ? handleSummarize : handleTranslate}
+                onPress={activeTab === 'transcript' ? handleTranscribe : activeTab === 'summary' ? handleSummarize : handleTranslate}
               >
                 <Text style={styles.actionButtonText}>
-                  {activeTab === 'transcript' ? '음성 인식 시작' : 
-                   activeTab === 'summary' ? '요약 노트 만들기' : '번역하기'}
+                  {activeTab === 'transcript' ? '음성 인식 시작' : activeTab === 'summary' ? '요약 노트 만들기' : '번역하기'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -304,8 +310,8 @@ export default function DetailScreen() {
               <TouchableOpacity style={[styles.modalButton, { borderColor: theme.border }]} onPress={() => setIsEditingTitle(false)}>
                 <Text style={{ color: theme.textSecondary }}>취소</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.modalButton, { backgroundColor: theme.primary, borderWidth: 0 }]} 
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: theme.primary, borderWidth: 0 }]}
                 onPress={() => {
                   if (editTitleDraft.trim()) updateRecording(id, { name: editTitleDraft.trim() });
                   setIsEditingTitle(false);

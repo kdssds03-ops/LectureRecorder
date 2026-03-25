@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, Alert, Linking, Animated } from 'react-native';
-import { useRouter } from 'expo-router';
-import { MaterialIcons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
-import { useRecordingStore, RecordingMeta } from '@/store/useRecordingStore';
+import { quickTranscribe } from '@/api/aiService';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { RecordingMeta, useRecordingStore } from '@/store/useRecordingStore';
+import { MaterialIcons } from '@expo/vector-icons';
+import { Audio } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, Animated, Linking, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function RecordScreen() {
   const router = useRouter();
@@ -17,10 +18,13 @@ export default function RecordScreen() {
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [duration, setDuration] = useState(0);
-  
-  // 애니메이션 효과를 위한 값
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const [realtimeTranscript, setRealtimeTranscript] = useState<string[]>([]);
+  const [isTranscribing, setIsTranscribing] = useState(false);
 
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  // Duration timer
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
     if (isRecording) {
@@ -28,7 +32,6 @@ export default function RecordScreen() {
         setDuration((prev) => prev + 1000);
       }, 1000);
 
-      // 맥박 애니메이션 시작
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
@@ -48,6 +51,36 @@ export default function RecordScreen() {
     }
     return () => clearInterval(interval);
   }, [isRecording]);
+
+  // Real-time transcription timer (every 30 seconds)
+  useEffect(() => {
+    let transInterval: ReturnType<typeof setInterval>;
+    if (isRecording) {
+      transInterval = setInterval(async () => {
+        if (recording) {
+          try {
+            setIsTranscribing(true);
+            // Get current recording URI without stopping
+            const status = await recording.getStatusAsync();
+            if (status.canRecord) {
+              const uri = recording.getURI();
+              if (uri) {
+                const text = await quickTranscribe(uri);
+                if (text && text.trim()) {
+                  setRealtimeTranscript(prev => [...prev, text]);
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Real-time transcription failed', err);
+          } finally {
+            setIsTranscribing(false);
+          }
+        }
+      }, 30000); // 30 seconds
+    }
+    return () => clearInterval(transInterval);
+  }, [isRecording, recording]);
 
   const formatTime = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);
@@ -70,49 +103,16 @@ export default function RecordScreen() {
         );
         return;
       }
-
-      // iOS에서 오디오 세션 활성화 충돌이 날 때를 대비해 세션을 초기화한 뒤 재시도합니다.
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-      });
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
       });
 
-      let createdRecording: Audio.Recording;
-      try {
-        const { recording } = await Audio.Recording.createAsync(
-          Audio.RecordingOptionsPresets.HIGH_QUALITY
-        );
-        createdRecording = recording;
-      } catch (firstError) {
-        // 첫 시도 실패 시 세션을 다시 활성화하고 1회 재시도합니다.
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          playsInSilentModeIOS: true,
-        });
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: true,
-          playsInSilentModeIOS: true,
-          shouldDuckAndroid: true,
-          playThroughEarpieceAndroid: false,
-        });
-
-        const { recording } = await Audio.Recording.createAsync(
-          Audio.RecordingOptionsPresets.HIGH_QUALITY
-        );
-        createdRecording = recording;
-        console.warn('Recording retried after initial prepare failure:', firstError);
-      }
-
-      setRecording(createdRecording);
+      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      setRecording(recording);
       setIsRecording(true);
       setDuration(0);
+      setRealtimeTranscript([]);
     } catch (err) {
       console.error('Failed to start recording', err);
       Alert.alert('녹음 시작 실패', '녹음을 시작할 수 없습니다. 잠시 후 다시 시도해 주세요.');
@@ -121,13 +121,12 @@ export default function RecordScreen() {
 
   const stopRecording = async () => {
     if (!recording) return;
-
     try {
       setIsRecording(false);
       await recording.stopAndUnloadAsync();
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-
       const uri = recording.getURI();
+
       if (uri) {
         const newRecording: RecordingMeta = {
           id: Date.now().toString(),
@@ -139,13 +138,11 @@ export default function RecordScreen() {
           folderId: null,
         };
         addRecording(newRecording);
-        router.back();
+        router.replace(`/(tabs)`);
       }
-    } catch (error) {
-      console.error('Failed to stop recording', error);
-      Alert.alert('녹음 중지 실패', '녹음을 저장하는 중 오류가 발생했습니다.');
+    } catch (err) {
+      console.error('Failed to stop recording', err);
     }
-    setRecording(null);
   };
 
   const handleClose = () => {
@@ -162,7 +159,7 @@ export default function RecordScreen() {
               try {
                 await recording?.stopAndUnloadAsync();
                 await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-              } catch (_) {}
+              } catch (_) { }
               setRecording(null);
               setIsRecording(false);
               router.back();
@@ -178,8 +175,8 @@ export default function RecordScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
-        <TouchableOpacity 
-          onPress={handleClose} 
+        <TouchableOpacity
+          onPress={handleClose}
           style={[styles.closeButton, { backgroundColor: theme.card, borderColor: theme.border }]}
         >
           <MaterialIcons name="close" size={24} color={theme.text} />
@@ -190,14 +187,14 @@ export default function RecordScreen() {
 
       <View style={styles.content}>
         <View style={styles.visualizerContainer}>
-          <Animated.View 
+          <Animated.View
             style={[
-              styles.pulseCircle, 
-              { 
+              styles.pulseCircle,
+              {
                 backgroundColor: isRecording ? (theme as any).accent : (theme as any).oliveLight,
                 transform: [{ scale: pulseAnim }]
               }
-            ]} 
+            ]}
           />
           <View style={[styles.mainCircle, { backgroundColor: isRecording ? theme.primary : (theme as any).secondary }]}>
             <MaterialIcons name="mic" size={64} color="#FFFFFF" />
@@ -212,6 +209,34 @@ export default function RecordScreen() {
             {isRecording ? '강의를 기록하고 있습니다...' : '준비가 되면 버튼을 눌러주세요'}
           </Text>
         </View>
+
+        {isRecording && (
+          <View style={[styles.transcriptContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.transcriptHeader}>
+              <Text style={[styles.transcriptTitle, { color: theme.text }]}>실시간 전사 내용</Text>
+              {isTranscribing && (
+                <Text style={[styles.transcribingText, { color: theme.primary }]}>인식 중...</Text>
+              )}
+            </View>
+            <ScrollView
+              ref={scrollViewRef}
+              style={styles.transcriptScroll}
+              onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+            >
+              {realtimeTranscript.length === 0 ? (
+                <Text style={[styles.emptyTranscript, { color: theme.textSecondary }]}>
+                  30초마다 전사된 내용이 여기에 표시됩니다.
+                </Text>
+              ) : (
+                realtimeTranscript.map((text, index) => (
+                  <Text key={index} style={[styles.transcriptText, { color: theme.text }]}>
+                    {text}
+                  </Text>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        )}
       </View>
 
       <View style={styles.controls}>
@@ -270,24 +295,25 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingBottom: 40,
+    paddingBottom: 20,
   },
   visualizerContainer: {
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 60,
+    marginBottom: 30,
+    marginTop: 20,
   },
   pulseCircle: {
     position: 'absolute',
-    width: 180,
-    height: 180,
-    borderRadius: 90,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
     opacity: 0.5,
   },
   mainCircle: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 10,
@@ -297,16 +323,53 @@ const styles = StyleSheet.create({
   },
   timerContainer: {
     alignItems: 'center',
+    marginBottom: 30,
   },
   timer: {
-    fontSize: 64,
+    fontSize: 48,
     fontWeight: '800',
     letterSpacing: 2,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   timerLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
+  },
+  transcriptContainer: {
+    width: '85%',
+    height: 200,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 20,
+    marginTop: 10,
+  },
+  transcriptHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  transcriptTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  transcribingText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  transcriptScroll: {
+    flex: 1,
+  },
+  transcriptText: {
+    fontSize: 15,
+    lineHeight: 24,
+    marginBottom: 12,
+  },
+  emptyTranscript: {
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 40,
+    lineHeight: 20,
   },
   controls: {
     paddingHorizontal: 40,
