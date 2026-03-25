@@ -126,10 +126,6 @@ export default function HomeScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Top Header Actions */}
       <View style={styles.headerTopArea}>
-        <TouchableOpacity style={[styles.iconButtonPrimary, { backgroundColor: theme.surface, ...Shadows.soft }]}>
-          <Feather name="bar-chart-2" size={20} color={theme.text} style={{ transform: [{ rotate: '90deg' }] }} />
-        </TouchableOpacity>
-
         <View style={[styles.actionPill, { backgroundColor: theme.surface, ...Shadows.soft }]}>
           <TouchableOpacity onPress={() => router.push('/record')} style={styles.actionPillButton}>
             <Feather name="file-plus" size={20} color={theme.text} />
@@ -278,18 +274,11 @@ const styles = StyleSheet.create({
   },
   headerTopArea: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     alignItems: 'center',
     paddingHorizontal: Spacing.screenPadding,
     paddingTop: Spacing.xl,
     paddingBottom: Spacing.md,
-  },
-  iconButtonPrimary: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.pill,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   actionPill: {
     flexDirection: 'row',
