@@ -5,7 +5,8 @@ import { MaterialIcons, Feather } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRecordingStore, RecordingMeta } from '@/store/useRecordingStore';
-import { quickTranscribe } from '@/api/aiService';
+import { quickTranscribe, summarizeText, translateText } from '@/api/aiService';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { Colors } from '@/constants/Colors';
 import { Spacing, Radius, Typography, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -15,6 +16,7 @@ export default function RecordScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
   const { addRecording, updateRecording, removeRecording } = useRecordingStore();
+  const { translationLanguage } = useSettingsStore();
 
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -27,8 +29,11 @@ export default function RecordScreen() {
   const chunkUrisRef = useRef<string[]>([]);
   const chunkQueueRef = useRef<string[]>([]);
   const isProcessorRunningRef = useRef(false);
+  const isAIProcessingRef = useRef(false);
+  const lastAITranscriptLengthRef = useRef(0);
 
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isAIUpdating, setIsAIUpdating] = useState(false);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const scrollViewRef = useRef<ScrollView>(null);
@@ -96,6 +101,7 @@ export default function RecordScreen() {
               updateRecording(activeRecordingIdRef.current, { 
                 transcript: transcriptRef.current.join('\n\n') 
               });
+              triggerAIUpdate(); // Trigger background AI pass (throttled)
             }
           }
         } else {
@@ -107,6 +113,52 @@ export default function RecordScreen() {
     } finally {
       setIsTranscribing(false);
       isProcessorRunningRef.current = false;
+    }
+  };
+
+  const triggerAIUpdate = async (force = false) => {
+    const currentTranscript = transcriptRef.current.join('\n\n');
+    const currentLength = currentTranscript.trim().length;
+    
+    // Throttling: Skip if already processing or total growth < 500 chars (approx 1.5-2 mins)
+    // unless force is true (for the final pass).
+    if (!force && (isAIProcessingRef.current || currentLength - lastAITranscriptLengthRef.current < 500)) {
+      return;
+    }
+
+    const recordingId = activeRecordingIdRef.current;
+    if (!recordingId || !currentTranscript.trim()) return;
+
+    console.log(`[AI Update] starting for transcript length: ${currentLength}`);
+    isAIProcessingRef.current = true;
+    setIsAIUpdating(true);
+    
+    try {
+      // Parallel execution for speed
+      const [sumRes, transRes] = await Promise.all([
+        summarizeText(currentTranscript),
+        translateText(currentTranscript, translationLanguage)
+      ]);
+
+      const updates: any = {
+        summary: sumRes.summary,
+        translation: transRes
+      };
+
+      // Only update name if it hasn't been manually edited (though during recording it's almost always default)
+      if (sumRes.suggestedName) {
+        updates.name = sumRes.suggestedName;
+        updates.titleSource = 'ai';
+      }
+
+      updateRecording(recordingId, updates);
+      lastAITranscriptLengthRef.current = currentLength;
+      console.log(`[AI Update] success`);
+    } catch (err) {
+      console.warn(`[AI Update] failed:`, err);
+    } finally {
+      isAIProcessingRef.current = false;
+      setIsAIUpdating(false);
     }
   };
 
@@ -236,6 +288,9 @@ export default function RecordScreen() {
       }
       setIsTranscribing(false);
 
+      // Final AI pass: ensure summary and translation are current before exiting
+      await triggerAIUpdate(true);
+
       const fullString = transcriptRef.current.join('\n\n');
       const rootUri = chunkUrisRef.current[0] || finalUri || '';
 
@@ -337,6 +392,12 @@ export default function RecordScreen() {
             <View style={styles.processingRow}>
               <ActivityIndicator size="small" color={theme.textTertiary} />
               <Text style={[styles.processingText, { color: theme.textTertiary }]}>Processing...</Text>
+            </View>
+          )}
+          {isAIUpdating && (
+            <View style={styles.processingRow}>
+              <ActivityIndicator size="small" color={theme.textTertiary} />
+              <Text style={[styles.processingText, { color: theme.textTertiary }]}>AI Analysis...</Text>
             </View>
           )}
         </View>
