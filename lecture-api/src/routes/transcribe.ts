@@ -16,6 +16,7 @@ const upload = multer({
  * Receives audio from the app, uploads it to AssemblyAI, returns a jobId.
  *
  * Body: multipart/form-data with field "audio" (the audio file)
+ * Query: diarize=true (optional)
  * Response: { jobId: string }
  */
 router.post('/', upload.single('audio'), async (req: Request, res: Response) => {
@@ -24,10 +25,7 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
     return;
   }
 
-  // speaker_labels=true enables diarization but adds latency even on short clips.
-  // Default is off; pass ?diarize=true in the request to enable it.
   const diarize = req.query.diarize === 'true';
-
   const t0 = Date.now();
   const ms = () => `${Date.now() - t0}ms`;
 
@@ -39,18 +37,16 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
         authorization: config.assemblyAiKey,
         'Content-Type': 'application/octet-stream',
       },
-      timeout: 60_000, // 60s upload timeout
+      timeout: 60_000,
     });
 
     const audioUrl: string = uploadRes.data.upload_url;
     console.log(`[transcribe] upload done ${ms()}`);
 
-    // Step 2: Submit transcription job.
-    // speech_model (singular) is the correct AssemblyAI v2 field.
-    // speaker_labels is opt-in: diarization adds noticeable latency on short clips.
+    // Step 2: Submit transcription job
     const jobBody: Record<string, unknown> = {
       audio_url: audioUrl,
-      speech_models: ['universal-2'],
+      speech_model: 'best', // Use 'best' for higher accuracy on final transcript
       language_detection: true,
       speaker_labels: diarize,
     };
@@ -69,27 +65,77 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
     console.log(`[transcribe] job submitted ${ms()} — jobId ${jobId}`);
     res.json({ jobId });
   } catch (err: any) {
-    // Surface the provider's error body so it's visible in client logs
     const providerError = err.response?.data;
     console.error('[transcribe] Error:', providerError ?? err.message);
-    const message = providerError?.error ?? providerError?.message ?? '오디오 업로드 또는 음성 인식 요청에 실패했습니다.';
-    res.status(500).json({ error: message, detail: providerError });
+    res.status(500).json({ error: '음성 인식 요청에 실패했습니다.', detail: providerError });
+  }
+});
+
+/**
+ * POST /api/transcribe/quick
+ * Quick transcription for real-time updates (30s chunks).
+ * Returns the text directly after a short poll.
+ */
+router.post('/quick', upload.single('audio'), async (req: Request, res: Response) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'No audio file provided.' });
+    return;
+  }
+
+  try {
+    // Step 1: Upload
+    const uploadRes = await axios.post('https://api.assemblyai.com/v2/upload', req.file.buffer, {
+      headers: {
+        authorization: config.assemblyAiKey,
+        'Content-Type': 'application/octet-stream',
+      },
+      timeout: 30_000,
+    });
+    const audioUrl = uploadRes.data.upload_url;
+
+    // Step 2: Submit with 'nano' model for speed
+    const transcriptRes = await axios.post(
+      'https://api.assemblyai.com/v2/transcript',
+      {
+        audio_url: audioUrl,
+        speech_model: 'nano', // Use 'nano' for near-instant results on short clips
+        language_code: 'ko', // Hardcode Korean for speed
+      },
+      {
+        headers: { authorization: config.assemblyAiKey },
+        timeout: 10_000,
+      }
+    );
+    const jobId = transcriptRes.data.id;
+
+    // Step 3: Fast poll (max 10s)
+    for (let i = 0; i < 10; i++) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      const pollRes = await axios.get(`https://api.assemblyai.com/v2/transcript/${jobId}`, {
+        headers: { authorization: config.assemblyAiKey },
+      });
+      
+      if (pollRes.data.status === 'completed') {
+        res.json({ text: pollRes.data.text });
+        return;
+      } else if (pollRes.data.status === 'error') {
+        throw new Error(pollRes.data.error);
+      }
+    }
+
+    res.status(202).json({ error: 'Transcription timed out, but still processing.' });
+  } catch (err: any) {
+    console.error('[transcribe/quick] Error:', err.message);
+    res.status(500).json({ error: '실시간 음성 인식에 실패했습니다.' });
   }
 });
 
 /**
  * GET /api/transcribe/:jobId
  * Polls AssemblyAI for the transcription result.
- * The mobile app calls this repeatedly until status is "completed" or "error".
- *
- * Response:
- *   { status: "processing" }
- *   { status: "completed", transcript: string }
- *   { status: "error", error: string }
  */
 router.get('/:jobId', async (req: Request, res: Response) => {
   const { jobId } = req.params;
-
   try {
     const pollingRes = await axios.get(
       `https://api.assemblyai.com/v2/transcript/${jobId}`,
@@ -98,24 +144,20 @@ router.get('/:jobId', async (req: Request, res: Response) => {
         timeout: 15_000,
       }
     );
-
     const data = pollingRes.data;
-
     if (data.status === 'completed') {
-      // Format with speaker labels if utterances are available
       let transcript: string;
       if (data.utterances && data.utterances.length > 0) {
         transcript = data.utterances
           .map((u: { speaker: string; text: string }) => `[화자 ${u.speaker}] ${u.text}`)
           .join('\n\n');
       } else {
-        transcript = data.text ?? '텍스트를 인식할 수 없습니다.';
+        transcript = data.text ?? '인식된 텍스트가 없습니다.';
       }
       res.json({ status: 'completed', transcript });
     } else if (data.status === 'error') {
       res.json({ status: 'error', error: data.error ?? '알 수 없는 오류' });
     } else {
-      // Still processing (queued / processing)
       res.json({ status: 'processing' });
     }
   } catch (err: any) {
