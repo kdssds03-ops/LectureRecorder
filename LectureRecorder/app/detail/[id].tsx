@@ -325,7 +325,7 @@ export default function DetailScreen() {
         <View style={styles.bottomActionArea}>
           <TouchableOpacity style={[styles.outlineButton, { borderColor: theme.border, backgroundColor: theme.surface, ...Shadows.soft }]}>
             <Feather name="copy" size={18} color={theme.textSecondary} style={{ marginRight: Spacing.sm }} />
-            <Text style={[styles.outlineButtonText, { color: theme.textSecondary }]}>Copy to Notion</Text>
+            <Text style={[styles.outlineButtonText, { color: theme.textSecondary }]}>Copy</Text>
           </TouchableOpacity>
         </View>
       )}
