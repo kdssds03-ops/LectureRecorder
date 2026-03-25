@@ -67,7 +67,15 @@ export default function DetailScreen() {
 
   useEffect(() => {
     return () => {
-      if (sound) sound.unloadAsync();
+      if (sound) {
+        console.log('[DetailScreen] Unloading sound on unmount');
+        sound.unloadAsync().catch(() => {});
+      }
+      // Reset audio mode to standard playback/neutral
+      Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      }).catch(() => {});
     };
   }, [sound]);
 

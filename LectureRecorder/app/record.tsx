@@ -34,6 +34,7 @@ export default function RecordScreen() {
 
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isAIUpdating, setIsAIUpdating] = useState(false);
+  const [isStartingRecording, setIsStartingRecording] = useState(false);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const scrollViewRef = useRef<ScrollView>(null);
@@ -65,6 +66,23 @@ export default function RecordScreen() {
     }
     return () => clearInterval(interval);
   }, [isRecording]);
+
+  // Global Audio Session Cleanup on Unmount
+  useEffect(() => {
+    return () => {
+      console.log('[RecordScreen] Unmounting, performing emergency cleanup...');
+      if (isRecordingRef.current) {
+        console.log('[RecordScreen] Stopping active recording during unmount');
+        recordingRef.current?.stopAndUnloadAsync().catch(err => 
+          console.warn('[RecordScreen] Unmount stop failed:', err)
+        );
+      }
+      Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      }).catch(err => console.warn('[RecordScreen] Unmount mode reset failed:', err));
+    };
+  }, []);
 
   const processTranscriptionQueue = async () => {
     if (isProcessorRunningRef.current) return;
@@ -207,9 +225,16 @@ export default function RecordScreen() {
   };
 
   const startRecording = async () => {
+    if (isStartingRecording || isRecording) return;
+    
+    setIsStartingRecording(true);
+    console.log('[Recording] Attempting to start recording...');
+    
     try {
+      console.log('[Recording] Requesting permissions...');
       const permission = await Audio.requestPermissionsAsync();
       if (permission.status !== 'granted') {
+        console.warn('[Recording] Permission denied');
         Alert.alert(
           '마이크 권한 필요',
           '강의를 녹음하려면 마이크 접근 권한이 필요합니다.',
@@ -220,17 +245,29 @@ export default function RecordScreen() {
         );
         return;
       }
+
+      console.log('[Recording] Cleaning up existing audio mode...');
       await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
+        allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
       });
 
-      chunkUrisRef.current = [];
-      chunkQueueRef.current = [];
-      isProcessorRunningRef.current = false;
-      transcriptRef.current = [];
-      setRealtimeTranscript([]);
-      
+      console.log('[Recording] Configuring audio session for recording...');
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
+        interruptionModeIOS: 1, // DoNotMix
+        shouldDuckAndroid: true,
+        interruptionModeAndroid: 1, // DoNotMix
+        playThroughEarpieceAndroid: false,
+      });
+
+      // Crucial: wait for iOS audio session to activate
+      console.log('[Recording] Waiting for session activation...');
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      console.log('[Recording] Creating new recording instance...');
       const { recording: newRec } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
@@ -238,7 +275,7 @@ export default function RecordScreen() {
       const recordingId = Date.now().toString();
       activeRecordingIdRef.current = recordingId;
 
-      // Create initial session record in store
+      console.log('[Recording] Initializing session in store with ID:', recordingId);
       const initialRecording: RecordingMeta = {
         id: recordingId,
         name: `강의 기록 ${new Date().toLocaleDateString()}`,
@@ -256,25 +293,47 @@ export default function RecordScreen() {
       setIsRecording(true);
       isRecordingRef.current = true;
       setDuration(0);
+      console.log('[Recording] Startup successful');
     } catch (err) {
-      console.error('Failed to start recording', err);
-      Alert.alert('녹음 시작 실패', '녹음을 시작할 수 없습니다. 잠시 후 다시 시도해 주세요.');
+      console.error('[Recording] Startup failed:', err);
+      // Attempt emergency cleanup
+      try {
+        await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      } catch (_) {}
+      Alert.alert('녹음 시작 실패', '녹음을 시작할 수 없습니다. 마이크가 다른 앱에서 사용 중인지 확인해 주세요.');
+    } finally {
+      setIsStartingRecording(false);
     }
   };
 
   const stopRecording = async () => {
+    if (!isRecording) return;
+    console.log('[Recording] Attempting to stop recording...');
+    
     isRecordingRef.current = false;
     setIsRecording(false);
     
     const currentRec = recordingRef.current;
-    if (!currentRec) return;
+    if (!currentRec) {
+      console.warn('[Recording] No active recording ref found during stop');
+      return;
+    }
     
     try {
+      console.log('[Recording] Stopping and unloading recording...');
       await currentRec.stopAndUnloadAsync();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      
+      console.log('[Recording] Resetting audio mode...');
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      });
       
       const finalUri = currentRec.getURI();
-      if (finalUri) chunkUrisRef.current.push(finalUri);
+      if (finalUri) {
+        console.log('[Recording] Final URI captured:', finalUri);
+        chunkUrisRef.current.push(finalUri);
+      }
 
       // Transcribe final piece by pushing to queue and waiting until drained
       if (finalUri) {
@@ -282,13 +341,14 @@ export default function RecordScreen() {
         processTranscriptionQueue();
       }
 
-      setIsTranscribing(true); // Ensure UI shows processing while we wait
+      setIsTranscribing(true); 
+      console.log('[Recording] Waiting for transcription queue to drain...');
       while (chunkQueueRef.current.length > 0 || isProcessorRunningRef.current) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
       setIsTranscribing(false);
 
-      // Final AI pass: ensure summary and translation are current before exiting
+      console.log('[Recording] Running final AI pass...');
       await triggerAIUpdate(true);
 
       const fullString = transcriptRef.current.join('\n\n');
