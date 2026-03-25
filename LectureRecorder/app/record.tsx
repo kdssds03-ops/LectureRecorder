@@ -24,6 +24,9 @@ export default function RecordScreen() {
   const [realtimeTranscript, setRealtimeTranscript] = useState<string[]>([]);
   const transcriptRef = useRef<string[]>([]);
   const chunkUrisRef = useRef<string[]>([]);
+  const chunkQueueRef = useRef<string[]>([]);
+  const isProcessorRunningRef = useRef(false);
+
   const [isTranscribing, setIsTranscribing] = useState(false);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -57,6 +60,49 @@ export default function RecordScreen() {
     return () => clearInterval(interval);
   }, [isRecording]);
 
+  const processTranscriptionQueue = async () => {
+    if (isProcessorRunningRef.current) return;
+    isProcessorRunningRef.current = true;
+
+    try {
+      while (chunkQueueRef.current.length > 0) {
+        setIsTranscribing(true);
+        const uriToProcess = chunkQueueRef.current[0];
+
+        let success = false;
+        let text = '';
+        let retries = 0;
+        
+        while (!success && retries < 3) {
+          try {
+            text = await quickTranscribe(uriToProcess);
+            success = true;
+          } catch (err) {
+            retries++;
+            console.warn(`[Transcription] chunk failed, retry ${retries}/3`, err);
+            if (retries < 3) {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+          }
+        }
+
+        if (success) {
+          if (text && text.trim()) {
+            transcriptRef.current.push(text);
+            setRealtimeTranscript([...transcriptRef.current]);
+          }
+        } else {
+          console.error('[Transcription] chunk failed permanently');
+        }
+
+        chunkQueueRef.current.shift();
+      }
+    } finally {
+      setIsTranscribing(false);
+      isProcessorRunningRef.current = false;
+    }
+  };
+
   const cycleChunk = async () => {
     if (!isRecordingRef.current) return;
     const currentRec = recordingRef.current;
@@ -76,13 +122,8 @@ export default function RecordScreen() {
       }
 
       if (oldUri) {
-        setIsTranscribing(true);
-        const text = await quickTranscribe(oldUri);
-        if (text && text.trim()) {
-          transcriptRef.current.push(text);
-          setRealtimeTranscript([...transcriptRef.current]);
-        }
-        setIsTranscribing(false);
+        chunkQueueRef.current.push(oldUri);
+        processTranscriptionQueue();
       }
     } catch (err) {
       console.error('Failed to cycle chunk', err);
@@ -126,6 +167,8 @@ export default function RecordScreen() {
       });
 
       chunkUrisRef.current = [];
+      chunkQueueRef.current = [];
+      isProcessorRunningRef.current = false;
       transcriptRef.current = [];
       setRealtimeTranscript([]);
       
@@ -157,16 +200,17 @@ export default function RecordScreen() {
       const finalUri = currentRec.getURI();
       if (finalUri) chunkUrisRef.current.push(finalUri);
 
-      // Transcribe final piece
+      // Transcribe final piece by pushing to queue and waiting until drained
       if (finalUri) {
-         setIsTranscribing(true);
-         const text = await quickTranscribe(finalUri);
-         if (text && text.trim()) {
-           transcriptRef.current.push(text);
-           setRealtimeTranscript([...transcriptRef.current]);
-         }
-         setIsTranscribing(false);
+        chunkQueueRef.current.push(finalUri);
+        processTranscriptionQueue();
       }
+
+      setIsTranscribing(true); // Ensure UI shows processing while we wait
+      while (chunkQueueRef.current.length > 0 || isProcessorRunningRef.current) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      setIsTranscribing(false);
 
       const fullString = transcriptRef.current.join('\n\n');
       const rootUri = chunkUrisRef.current[0] || finalUri || '';
