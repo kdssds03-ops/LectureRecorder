@@ -8,6 +8,7 @@ import { Colors } from '@/constants/Colors';
 import { Spacing, Radius, Typography, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { transcribeAudio, translateText } from '@/api/aiService';
+import * as Clipboard from 'expo-clipboard';
 
 type TabType = 'transcript' | 'summary' | 'translation';
 
@@ -153,6 +154,28 @@ export default function DetailScreen() {
       setProcessingStatus('');
     }
   }, [recording]);
+
+  const handleCopy = async () => {
+    if (!recording) return;
+    let textToCopy = '';
+
+    if (activeTab === 'transcript' && recording.transcript) {
+      textToCopy = recording.transcript;
+    } else if (activeTab === 'summary' && recording.summary) {
+      const summaryData = typeof recording.summary === 'object' ? recording.summary as any : null;
+      if (summaryData && typeof summaryData.summary === 'string') {
+        textToCopy = summaryData.summary;
+      } else {
+        textToCopy = String(recording.summary);
+      }
+    } else if (activeTab === 'translation' && recording.translation) {
+      textToCopy = recording.translation;
+    }
+
+    if (textToCopy && textToCopy.trim()) {
+      await Clipboard.setStringAsync(textToCopy);
+    }
+  };
 
   const formatTime = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);
@@ -323,7 +346,11 @@ export default function DetailScreen() {
 
       {recording?.transcript && (
         <View style={styles.bottomActionArea}>
-          <TouchableOpacity style={[styles.outlineButton, { borderColor: theme.border, backgroundColor: theme.surface, ...Shadows.soft }]}>
+          <TouchableOpacity 
+            style={[styles.outlineButton, { borderColor: theme.border, backgroundColor: theme.surface, ...Shadows.soft }]}
+            onPress={handleCopy}
+            activeOpacity={0.7}
+          >
             <Feather name="copy" size={18} color={theme.textSecondary} style={{ marginRight: Spacing.sm }} />
             <Text style={[styles.outlineButtonText, { color: theme.textSecondary }]}>Copy</Text>
           </TouchableOpacity>
