@@ -9,6 +9,7 @@ import { Spacing, Radius, Typography, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { transcribeAudio, translateText } from '@/api/aiService';
 import * as Clipboard from 'expo-clipboard';
+import Snackbar from '@/components/Snackbar';
 
 type TabType = 'transcript' | 'summary' | 'translation';
 
@@ -49,6 +50,9 @@ export default function DetailScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('transcript');
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
+
+  const [snackbarVisible, setSnackbarVisible] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
 
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitleDraft, setEditTitleDraft] = useState('');
@@ -173,7 +177,17 @@ export default function DetailScreen() {
     }
 
     if (textToCopy && textToCopy.trim()) {
-      await Clipboard.setStringAsync(textToCopy);
+      try {
+        await Clipboard.setStringAsync(textToCopy);
+        setSnackbarMessage('클립보드에 복사되었습니다.');
+        setSnackbarVisible(true);
+      } catch (err) {
+        setSnackbarMessage('복사에 실패했습니다.');
+        setSnackbarVisible(true);
+      }
+    } else {
+      setSnackbarMessage('복사할 내용이 없습니다.');
+      setSnackbarVisible(true);
     }
   };
 
@@ -384,6 +398,8 @@ export default function DetailScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <Snackbar visible={snackbarVisible} message={snackbarMessage} onDismiss={() => setSnackbarVisible(false)} />
     </SafeAreaView>
   );
 }
