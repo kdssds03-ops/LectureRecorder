@@ -84,7 +84,9 @@ export async function resetBackendConfigForDebug(): Promise<void> {
 
 export async function getAppSecret(): Promise<string> {
   const secret = await AsyncStorage.getItem(APP_SECRET_KEY);
-  return secret?.trim() ?? '';
+  const trimmed = secret?.trim();
+  // If no secret is set in AsyncStorage, use the default provided by the user
+  return trimmed || 'nokkang-secret-key';
 }
 
 export async function setAppSecret(secret: string): Promise<void> {
@@ -162,23 +164,44 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
 
   console.log(`[transcribe] upload started at ${new Date().toISOString()}`);
   let uploadRes;
-  try {
-    uploadRes = await axios.post(
-      finalUrl,
-      formData,
-      {
-        headers: {
-          'x-app-key': secret,
-          'Content-Type': 'multipart/form-data',
-        },
-        timeout: 120_000,
-        ...ACCEPT_ALL,
+  let retryCount = 0;
+  const MAX_RETRIES = 3;
+
+  while (retryCount < MAX_RETRIES) {
+    try {
+      uploadRes = await axios.post(
+        finalUrl,
+        formData,
+        {
+          headers: {
+            'x-app-key': secret,
+            'Content-Type': 'multipart/form-data',
+          },
+          timeout: 120_000,
+          ...ACCEPT_ALL,
+        }
+      );
+      
+      // If 503 Service Unavailable, retry after a short delay
+      if (uploadRes.status === 503 && retryCount < MAX_RETRIES - 1) {
+        retryCount++;
+        console.log(`[transcribe] upload 503 error, retrying (${retryCount}/${MAX_RETRIES})...`);
+        await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
+        continue;
       }
-    );
-    assertStatus(uploadRes); // throws with populated error.response on 4xx/5xx
-  } catch (err: any) {
-    console.log(`[Diagnostic] upload failed at ${new Date().toISOString()} | elapsed: ${elapsed()} | error: ${err.message}`);
-    throw err;
+      
+      assertStatus(uploadRes);
+      break; // Success or non-retryable error
+    } catch (err: any) {
+      if (retryCount < MAX_RETRIES - 1 && (err.message.includes('503') || err.message.includes('Network Error'))) {
+        retryCount++;
+        console.log(`[transcribe] upload failed, retrying (${retryCount}/${MAX_RETRIES})... error: ${err.message}`);
+        await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
+        continue;
+      }
+      console.log(`[Diagnostic] upload failed at ${new Date().toISOString()} | elapsed: ${elapsed()} | error: ${err.message}`);
+      throw err;
+    }
   }
 
   const jobId: string = uploadRes.data?.jobId;
