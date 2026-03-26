@@ -8,8 +8,8 @@
     "icon": "./assets/images/icon.png",
     "splash": {
       "image": "./assets/images/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#F1F5E9"
+      "resizeMode": "cover",
+      "backgroundColor": "#EAF2E1"
     },
     "scheme": "nokkang",
     "userInterfaceStyle": "automatic",
@@ -30,7 +30,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#F1F5E9",
+        "backgroundColor": "#FDFCF8",
         "foregroundImage": "./assets/images/icon.png"
       },
       "edgeToEdgeEnabled": true,
@@ -51,8 +51,8 @@
         {
           "image": "./assets/images/splash.png",
           "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#F1F5E9",
+          "resizeMode": "cover",
+          "backgroundColor": "#EAF2E1",
           "dark": {
             "backgroundColor": "#1C1C1E"
           }
