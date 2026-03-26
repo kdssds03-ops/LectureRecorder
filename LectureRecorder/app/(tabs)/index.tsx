@@ -141,7 +141,7 @@ export default function HomeScreen() {
 
       {/* Main Title */}
       <View style={styles.titleContainer}>
-        <Text style={[styles.mainTitle, { color: theme.text }]}>노트</Text>
+        <Text style={[styles.mainTitle, { color: theme.text }]}>노깡</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.listContainer} showsVerticalScrollIndicator={false}>
