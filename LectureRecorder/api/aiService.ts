@@ -292,7 +292,8 @@ export async function quickTranscribe(audioUri: string): Promise<string> {
  */
 export async function summarizeText(
   text: string,
-  lectureType: LectureType = 'general'
+  lectureType: LectureType = 'general',
+  language: string = 'ko'
 ): Promise<{ summary: string; suggestedName: string }> {
   const baseUrl = await getBackendUrl();
   const headers = await buildHeaders();
@@ -303,7 +304,7 @@ export async function summarizeText(
 
   const res = await axios.post(
     `${baseUrl}/api/summarize`,
-    { text, lectureType },
+    { text, lectureType, language },
     { headers, timeout: 90_000, ...ACCEPT_ALL }
   );
   assertStatus(res);
@@ -320,8 +321,18 @@ export async function summarizeText(
  */
 export async function translateText(
   text: string,
-  targetLang: string = 'English'
+  targetLang: string = 'en'
 ): Promise<string> {
+  // Map language codes to full language names for OpenAI
+  const langMap: Record<string, string> = {
+    'en': 'English',
+    'ko': 'Korean',
+    'ja': 'Japanese',
+    'zh': 'Chinese',
+    'es': 'Spanish',
+    'fr': 'French',
+  };
+  const fullLangName = langMap[targetLang] || 'English';
   const baseUrl = await getBackendUrl();
   const headers = await buildHeaders();
 
@@ -331,7 +342,7 @@ export async function translateText(
 
   const res = await axios.post(
     `${baseUrl}/api/translate`,
-    { text, targetLang },
+    { text, targetLang: fullLangName },
     { headers, timeout: 90_000, ...ACCEPT_ALL }
   );
   assertStatus(res);
