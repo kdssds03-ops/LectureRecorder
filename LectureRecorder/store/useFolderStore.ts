@@ -12,11 +12,13 @@ export interface Folder {
 
 interface FolderState {
   folders: Folder[];
+  expandedFolders: string[]; // Added to fix 'includes' of undefined error
   _hasHydrated: boolean;
   
   addFolder: (name: string, color?: string, icon?: string) => void;
   deleteFolder: (id: string) => void;
   updateFolder: (id: string, updates: Partial<Folder>) => void;
+  toggleFolder: (id: string) => void; // Added to fix missing function in index.tsx
   setHasHydrated: (state: boolean) => void;
 }
 
@@ -24,6 +26,7 @@ export const useFolderStore = create<FolderState>()(
   persist(
     (set, get) => ({
       folders: [],
+      expandedFolders: ['uncategorized'], // Default expanded
       _hasHydrated: false,
 
       addFolder: (name, color = '#C2D68F', icon = 'folder') => {
@@ -47,6 +50,15 @@ export const useFolderStore = create<FolderState>()(
             f.id === id ? { ...f, ...updates } : f
           ),
         });
+      },
+
+      toggleFolder: (id) => {
+        const current = get().expandedFolders || [];
+        if (current.includes(id)) {
+          set({ expandedFolders: current.filter(fid => fid !== id) });
+        } else {
+          set({ expandedFolders: [...current, id] });
+        }
       },
 
       setHasHydrated: (state) => set({ _hasHydrated: state }),

@@ -98,7 +98,8 @@ export default function HomeScreen() {
   );
 
   const renderFolderSection = (folderId: string, folderName: string) => {
-    const isExpanded = expandedFolders.includes(folderId);
+    // Defense code: ensure expandedFolders is an array
+    const isExpanded = (expandedFolders || []).includes(folderId);
     const folderRecordings = filteredRecordings.filter((r) => 
       folderId === 'uncategorized' ? !r.folderId : r.folderId === folderId
     );
