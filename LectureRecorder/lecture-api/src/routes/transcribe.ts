@@ -6,9 +6,13 @@ import { config } from '../config';
 const router = Router();
 
 // Store upload in memory — audio is streamed through to AssemblyAI and not persisted on this server
+// Increased limits for large audio files
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 200 * 1024 * 1024 }, // 200MB max
+  limits: { 
+    fileSize: 500 * 1024 * 1024, // 500MB max
+    fieldSize: 500 * 1024 * 1024 
+  },
 });
 
 /**
@@ -37,7 +41,9 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
         authorization: config.assemblyAiKey,
         'Content-Type': 'application/octet-stream',
       },
-      timeout: 60_000,
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+      timeout: 300_000, // 5 minutes for large uploads
     });
 
     const audioUrl: string = uploadRes.data.upload_url;

@@ -165,11 +165,16 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`[server] LectureRecorder API running on port ${PORT}`);
   console.log(`[server] OpenAI: ${config.openAiKey ? 'configured' : 'MISSING'}`);
   console.log(`[server] AssemblyAI: ${config.assemblyAiKey ? 'configured' : 'MISSING'}`);
   console.log(`[server] App Secret: ${config.appSecret !== 'default_secret' ? 'configured' : 'using default (insecure!)'}`);
 });
+
+// Increase server timeout for large file uploads (10 minutes)
+server.timeout = 600_000;
+server.keepAliveTimeout = 600_000;
+server.headersTimeout = 601_000;
 
 export default app;
