@@ -1,60 +1,64 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, Alert, Platform, ScrollView, ActivityIndicator, Modal, TextInput } from 'react-native';
+import React, { useState, useMemo, useEffect } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  TouchableOpacity,
+  ScrollView,
+  SafeAreaView,
+  StatusBar,
+  TextInput,
+  LayoutAnimation,
+  Platform,
+  UIManager,
+  Alert,
+  Modal,
+} from 'react-native';
 import { useRouter } from 'expo-router';
-import { MaterialIcons, Feather } from '@expo/vector-icons';
+import { MaterialIcons, Feather, Ionicons } from '@expo/vector-icons';
 import { useRecordingStore } from '@/store/useRecordingStore';
 import { useFolderStore } from '@/store/useFolderStore';
 import { Colors } from '@/constants/Colors';
 import { Spacing, Radius, Typography, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import MoveToFolderModal from '@/components/MoveToFolderModal';
-import Snackbar from '@/components/Snackbar';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 export default function HomeScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  
-  const { 
-    recordings, 
-    loadRecordings, 
-    removeRecording,
-    moveToFolder
-  } = useRecordingStore();
-  const { 
-    folders, 
-    addFolder, 
-    deleteFolder, 
-    _hasHydrated: foldersHydrated 
-  } = useFolderStore();
 
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['all']));
-  const [isMoveModalVisible, setIsMoveModalVisible] = useState(false);
+  const { recordings, loadRecordings, deleteRecording } = useRecordingStore();
+  const { folders, addFolder, deleteFolder, expandedFolders, toggleFolder } = useFolderStore();
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
   const [isNewFolderModalVisible, setIsNewFolderModalVisible] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
-  const [recordingToMove, setRecordingToMove] = useState<{id: string, folderId: string | null} | null>(null);
-  const [snackbarVisible, setSnackbarVisible] = useState(false);
-  const [snackbarMessage, setSnackbarMessage] = useState('');
 
   useEffect(() => {
     loadRecordings();
   }, []);
 
-  const toggleFolder = (folderId: string) => {
-    const next = new Set(expandedFolders);
-    if (next.has(folderId)) {
-      next.delete(folderId);
-    } else {
-      next.add(folderId);
-    }
-    setExpandedFolders(next);
+  const filteredRecordings = useMemo(() => {
+    if (!searchQuery.trim()) return recordings;
+    return recordings.filter((r) =>
+      r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (r.transcript && r.transcript.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+  }, [recordings, searchQuery]);
+
+  const formatDate = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${month}.${day}`;
   };
 
   const handleNewFolder = () => {
-    setIsNewFolderModalVisible(true);
-  };
-
-  const submitNewFolder = () => {
     if (newFolderName.trim()) {
       addFolder(newFolderName.trim());
       setNewFolderName('');
@@ -62,185 +66,175 @@ export default function HomeScreen() {
     }
   };
 
-  const handleDeleteFolder = (id: string, name: string) => {
-    Alert.alert('폴더 삭제', `"${name}" 폴더를 삭제할까요?`, [
-      { text: '취소', style: 'cancel' },
-      { text: '삭제', style: 'destructive', onPress: () => deleteFolder(id) },
-    ]);
-  };
-
-  const formatDateLabel = (timestamp: number) => {
-    const d = new Date(timestamp);
-    return `${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
-  };
-
-  const handleLongPressRecording = (id: string, folderId: string | null) => {
-    setRecordingToMove({ id, folderId });
-    setIsMoveModalVisible(true);
-  };
-
-  const handleMoveRecording = (recordingId: string, folderId: string | null) => {
-    moveToFolder(recordingId, folderId);
-    setSnackbarMessage(`이동되었습니다.`);
-    setSnackbarVisible(true);
-  };
-
-  if (!foldersHydrated) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background, justifyContent: 'center' }]}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </SafeAreaView>
-    );
-  }
-
-  const unassignedRecordings = recordings.filter(r => !r.folderId);
-  const foldersWithRecordings = folders.map(folder => ({
-    ...folder,
-    recordings: recordings.filter(r => r.folderId === folder.id)
-  }));
-
-  const renderNoteRow = (item: any) => (
+  const renderRecordingItem = (item: any) => (
     <TouchableOpacity
       key={item.id}
-      style={styles.noteRow}
+      style={styles.recordingItem}
+      onPress={() => router.push({ pathname: '/detail/[id]', params: { id: item.id } })}
+      onLongPress={() => {
+        Alert.alert('기록 삭제', `"${item.name}" 기록을 삭제할까요?`, [
+          { text: '취소', style: 'cancel' },
+          { text: '삭제', style: 'destructive', onPress: () => deleteRecording(item.id) },
+        ]);
+      }}
       activeOpacity={0.6}
-      onPress={() => router.push({
-        pathname: "/detail/[id]",
-        params: { id: item.id, name: item.name, duration: item.duration, createdAt: item.createdAt }
-      })}
-      onLongPress={() => handleLongPressRecording(item.id, item.folderId)}
     >
-      <View style={styles.noteRowLeft}>
-        <Feather name="file-text" size={20} color={theme.text} style={styles.noteIcon} />
-        <Text style={[styles.noteTitle, { color: theme.text }]} numberOfLines={1}>
+      <View style={styles.recordingIconContainer}>
+        <MaterialIcons 
+          name={item.transcript ? "description" : "mic-none"} 
+          size={24} 
+          color={theme.textSecondary} 
+        />
+      </View>
+      <View style={styles.recordingInfo}>
+        <Text style={[styles.recordingName, { color: theme.text }]} numberOfLines={1}>
           {item.name}
         </Text>
       </View>
-      <Text style={[styles.noteDate, { color: theme.textSecondary }]}>
-        {formatDateLabel(item.createdAt)}
+      <Text style={[styles.recordingDate, { color: theme.textTertiary }]}>
+        {formatDate(item.createdAt)}
       </Text>
     </TouchableOpacity>
   );
 
+  const renderFolderSection = (folderId: string, folderName: string) => {
+    const isExpanded = expandedFolders.includes(folderId);
+    const folderRecordings = filteredRecordings.filter((r) => 
+      folderId === 'uncategorized' ? !r.folderId : r.folderId === folderId
+    );
+
+    if (folderRecordings.length === 0 && searchQuery) return null;
+
+    return (
+      <View key={folderId} style={styles.folderContainer}>
+        <TouchableOpacity
+          style={styles.folderHeader}
+          onPress={() => {
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            toggleFolder(folderId);
+          }}
+          onLongPress={() => {
+            if (folderId !== 'uncategorized') {
+              Alert.alert('폴더 삭제', `"${folderName}" 폴더를 삭제할까요?`, [
+                { text: '취소', style: 'cancel' },
+                { text: '삭제', style: 'destructive', onPress: () => deleteFolder(folderId) },
+              ]);
+            }
+          }}
+          activeOpacity={0.7}
+        >
+          <View style={styles.folderTitleRow}>
+            <View style={[styles.folderIcon, { backgroundColor: theme.text }]}>
+              <MaterialIcons name="folder" size={16} color={theme.background} />
+            </View>
+            <Text style={[styles.folderName, { color: theme.text }]}>{folderName}</Text>
+          </View>
+          <View style={styles.folderRightRow}>
+            <View style={[styles.countBadge, { backgroundColor: theme.accent }]}>
+              <Text style={styles.countText}>{folderRecordings.length}</Text>
+            </View>
+            <Feather
+              name={isExpanded ? 'chevron-up' : 'chevron-down'}
+              size={20}
+              color={theme.textTertiary}
+            />
+          </View>
+        </TouchableOpacity>
+
+        {isExpanded && (
+          <View style={styles.folderContent}>
+            {folderRecordings.length > 0 ? (
+              folderRecordings.map(renderRecordingItem)
+            ) : (
+              <Text style={[styles.emptyFolderText, { color: theme.textTertiary }]}>
+                이 폴더에 기록이 없습니다.
+              </Text>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Top Header Actions */}
-      <View style={styles.headerTopArea}>
-        <View style={[styles.actionPill, { backgroundColor: theme.surface, ...Shadows.soft }]}>
-          <TouchableOpacity onPress={() => router.push('/record')} style={styles.actionPillButton}>
-            <Feather name="file-plus" size={20} color={theme.text} />
+      <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
+      
+      {/* Header with Floating Action Group from Image */}
+      <View style={styles.header}>
+        <Text style={[styles.headerTitle, { color: theme.accent }]}>노깡</Text>
+        
+        <View style={[styles.actionGroup, { backgroundColor: theme.floatingButton, ...Shadows.medium }]}>
+          <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/record')}>
+            <Feather name="plus" size={22} color={theme.background} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleNewFolder} style={styles.actionPillButton}>
-            <Feather name="folder-plus" size={20} color={theme.text} />
+          <TouchableOpacity style={styles.actionButton} onPress={() => setIsNewFolderModalVisible(true)}>
+            <MaterialIcons name="create-new-folder" size={22} color={theme.background} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.push('/settings')} style={styles.actionPillButton}>
-            <Feather name="settings" size={20} color={theme.text} />
+          <TouchableOpacity 
+            style={styles.actionButton} 
+            onPress={() => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setIsSearching(!isSearching);
+            }}
+          >
+            <Feather name="search" size={20} color={theme.background} />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Main Title */}
-      <View style={styles.titleContainer}>
-        <Text style={[styles.mainTitle, { color: theme.text }]}>노깡</Text>
-      </View>
-
-      <ScrollView contentContainerStyle={styles.listContainer} showsVerticalScrollIndicator={false}>
-        {/* Unassigned Notes (if any) */}
-        {unassignedRecordings.length > 0 && (
-          <View style={styles.folderSection}>
-            <TouchableOpacity 
-              style={styles.folderRow}
-              activeOpacity={0.7}
-              onPress={() => toggleFolder('all')}
-            >
-              <View style={styles.folderRowLeft}>
-                <Feather name="folder" size={20} color={theme.text} style={styles.folderIcon} />
-                <Text style={[styles.folderTitle, { color: theme.text }]}>기본 노트</Text>
-              </View>
-              <View style={styles.folderRowRight}>
-                <View style={[styles.countBadge, { backgroundColor: theme.unselectedChip }]}>
-                  <Text style={[styles.countText, { color: theme.textSecondary }]}>{unassignedRecordings.length}</Text>
-                </View>
-                <Feather name={expandedFolders.has('all') ? "chevron-up" : "chevron-down"} size={20} color={theme.textSecondary} />
-              </View>
-            </TouchableOpacity>
-            
-            {expandedFolders.has('all') && (
-              <View style={styles.folderContent}>
-                {unassignedRecordings.map(renderNoteRow)}
-              </View>
+      {isSearching && (
+        <View style={styles.searchContainer}>
+          <View style={[styles.searchBar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Feather name="search" size={18} color={theme.textTertiary} />
+            <TextInput
+              style={[styles.searchInput, { color: theme.text }]}
+              placeholder="강의 제목이나 내용 검색..."
+              placeholderTextColor={theme.textTertiary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoFocus
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={18} color={theme.textTertiary} />
+              </TouchableOpacity>
             )}
           </View>
-        )}
+        </View>
+      )}
 
-        {/* Folders */}
-        {foldersWithRecordings.map(folder => (
-          <View key={folder.id} style={styles.folderSection}>
-            <TouchableOpacity 
-              style={styles.folderRow}
-              activeOpacity={0.7}
-              onPress={() => toggleFolder(folder.id)}
-              onLongPress={() => handleDeleteFolder(folder.id, folder.name)}
-            >
-              <View style={styles.folderRowLeft}>
-                <Feather name="folder" size={20} color={theme.text} style={styles.folderIcon} />
-                <Text style={[styles.folderTitle, { color: theme.text }]}>{folder.name}</Text>
-              </View>
-              <View style={styles.folderRowRight}>
-                <View style={[styles.countBadge, { backgroundColor: theme.unselectedChip }]}>
-                  <Text style={[styles.countText, { color: theme.textSecondary }]}>{folder.recordings.length}</Text>
-                </View>
-                <Feather name={expandedFolders.has(folder.id) ? "chevron-up" : "chevron-down"} size={20} color={theme.textSecondary} />
-              </View>
-            </TouchableOpacity>
-            
-            {expandedFolders.has(folder.id) && (
-              <View style={styles.folderContent}>
-                {folder.recordings.length === 0 ? (
-                  <View style={styles.emptyFolderContent}>
-                    <Text style={{ color: theme.textTertiary, ...Typography.bodySmall }}>비어 있음</Text>
-                  </View>
-                ) : (
-                  folder.recordings.map(renderNoteRow)
-                )}
-              </View>
-            )}
-          </View>
-        ))}
-
-        {recordings.length === 0 && folders.length === 0 && (
-          <View style={styles.emptyState}>
-            <Feather name="inbox" size={48} color={theme.border} style={{ marginBottom: Spacing.md }} />
-            <Text style={{ color: theme.textSecondary, ...Typography.bodyMedium }}>아직 작성된 노트가 없습니다.</Text>
-            <Text style={{ color: theme.textTertiary, ...Typography.bodySmall, marginTop: Spacing.xs }}>하단 버튼을 눌러 녹음을 시작해보세요.</Text>
-          </View>
-        )}
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.listContent}>
+          {/* Uncategorized recordings first (Default Notes) */}
+          {renderFolderSection('uncategorized', '기본 노트')}
+          
+          {/* User Folders */}
+          {folders.map((folder) => renderFolderSection(folder.id, folder.name))}
+        </View>
       </ScrollView>
 
-      {/* Floating Action Button */}
-      <View style={styles.fabWrapper}>
+      {/* Bottom Recording Button from Image */}
+      <View style={styles.bottomContainer}>
         <TouchableOpacity
-          style={[styles.fab, { backgroundColor: theme.primary, ...Shadows.floating }]}
-          activeOpacity={0.9}
+          style={[styles.mainRecordButton, { backgroundColor: theme.primary, ...Shadows.medium }]}
           onPress={() => router.push('/record')}
+          activeOpacity={0.8}
         >
-          <MaterialIcons name="graphic-eq" size={30} color="#FFFFFF" />
+          <MaterialIcons name="mic" size={32} color={theme.background} />
         </TouchableOpacity>
       </View>
 
-      <MoveToFolderModal
-        visible={isMoveModalVisible}
-        recordingId={recordingToMove?.id || null}
-        currentFolderId={recordingToMove?.folderId || null}
-        onMove={handleMoveRecording}
-        onClose={() => {
-          setIsMoveModalVisible(false);
-          setRecordingToMove(null);
-        }}
-      />
-
+      {/* New Folder Modal */}
       <Modal visible={isNewFolderModalVisible} transparent animationType="fade">
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setIsNewFolderModalVisible(false)}>
+        <TouchableOpacity 
+          style={styles.modalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setIsNewFolderModalVisible(false)}
+        >
           <View style={[styles.modalContent, { backgroundColor: theme.surface, ...Shadows.medium }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>새 폴더 만들기</Text>
             <TextInput
@@ -252,18 +246,22 @@ export default function HomeScreen() {
               autoFocus
             />
             <View style={styles.modalButtons}>
-              <TouchableOpacity style={[styles.modalButton, { borderColor: theme.border }]} onPress={() => setIsNewFolderModalVisible(false)}>
+              <TouchableOpacity 
+                style={[styles.modalButton, { borderColor: theme.border }]} 
+                onPress={() => setIsNewFolderModalVisible(false)}
+              >
                 <Text style={{ color: theme.textSecondary, ...Typography.bodyMedium }}>취소</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.text }]} onPress={submitNewFolder}>
+              <TouchableOpacity 
+                style={[styles.modalButton, { backgroundColor: theme.text }]} 
+                onPress={handleNewFolder}
+              >
                 <Text style={{ color: theme.background, ...Typography.bodyMedium, fontWeight: '700' }}>생성</Text>
               </TouchableOpacity>
             </View>
           </View>
         </TouchableOpacity>
       </Modal>
-
-      <Snackbar visible={snackbarVisible} message={snackbarMessage} onDismiss={() => setSnackbarVisible(false)} />
     </SafeAreaView>
   );
 }
@@ -272,115 +270,142 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  headerTopArea: {
+  header: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: Spacing.screenPadding,
-    paddingTop: Spacing.xl,
+    paddingTop: Spacing.lg,
     paddingBottom: Spacing.md,
   },
-  actionPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: Radius.pill,
-    paddingHorizontal: Spacing.xs,
-    height: 44,
+  headerTitle: {
+    ...Typography.titleLarge,
+    fontWeight: '800',
+    letterSpacing: -0.5,
   },
-  actionPillButton: {
-    width: 40,
-    height: 40,
+  actionGroup: {
+    flexDirection: 'row',
+    borderRadius: Radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 4,
+  },
+  actionButton: {
+    width: 38,
+    height: 38,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  titleContainer: {
+  searchContainer: {
     paddingHorizontal: Spacing.screenPadding,
-    paddingBottom: Spacing.xl,
+    marginBottom: Spacing.md,
   },
-  mainTitle: {
-    ...Typography.titleLarge,
-    fontSize: 34, 
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 46,
+    borderRadius: Radius.lg,
+    paddingHorizontal: Spacing.md,
+    borderWidth: 1,
   },
-  listContainer: {
+  searchInput: {
+    flex: 1,
+    marginLeft: Spacing.sm,
+    ...Typography.bodyMedium,
+  },
+  listContent: {
     paddingHorizontal: Spacing.screenPadding,
-    paddingBottom: 160, // Extra space for FAB
+    paddingTop: Spacing.md,
   },
-  folderSection: {
+  scrollContent: {
+    paddingBottom: 120,
+  },
+  folderContainer: {
     marginBottom: Spacing.lg,
   },
-  folderRow: {
+  folderHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: Spacing.md,
-  },
-  folderRowLeft: {
-    flexDirection: 'row',
     alignItems: 'center',
-  },
-  folderIcon: {
-    marginRight: Spacing.sm,
-  },
-  folderTitle: {
-    ...Typography.bodyLarge,
-  },
-  folderRowRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  countBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: Radius.pill,
-    marginRight: Spacing.sm,
-  },
-  countText: {
-    ...Typography.caption,
-  },
-  folderContent: {
-    paddingTop: Spacing.xs,
-  },
-  emptyFolderContent: {
-    paddingLeft: Spacing.xl + Spacing.sm,
     paddingVertical: Spacing.sm,
   },
-  noteRow: {
+  folderTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: Spacing.md,
-    paddingLeft: Spacing.lg, 
+    gap: Spacing.sm,
   },
-  noteRowLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    paddingRight: Spacing.md,
-  },
-  noteIcon: {
-    marginRight: Spacing.md,
-  },
-  noteTitle: {
-    ...Typography.bodyMedium,
-    flex: 1,
-  },
-  noteDate: {
-    ...Typography.bodySmall,
-  },
-  emptyState: {
-    alignItems: 'center',
+  folderIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
     justifyContent: 'center',
-    marginTop: 100,
+    alignItems: 'center',
   },
-  fabWrapper: {
+  folderName: {
+    ...Typography.bodyLarge,
+    fontWeight: '700',
+  },
+  folderRightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  countBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+  },
+  countText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  folderContent: {
+    marginTop: Spacing.xs,
+    paddingLeft: 4,
+  },
+  recordingItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    gap: Spacing.md,
+  },
+  recordingIconContainer: {
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  recordingInfo: {
+    flex: 1,
+  },
+  recordingName: {
+    ...Typography.bodyMedium,
+    fontWeight: '500',
+  },
+  recordingDate: {
+    fontSize: 13,
+    fontWeight: '400',
+  },
+  emptyFolderText: {
+    ...Typography.caption,
+    paddingVertical: Spacing.md,
+    paddingLeft: 40,
+  },
+  bottomContainer: {
     position: 'absolute',
-    bottom: 50,
-    alignSelf: 'center',
+    bottom: 40,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
   },
-  fab: {
+  mainRecordButton: {
     width: 72,
     height: 72,
-    borderRadius: Radius.pill,
+    borderRadius: 36,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -422,4 +447,3 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
 });
-

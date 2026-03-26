@@ -9,7 +9,7 @@
     "splash": {
       "image": "./assets/images/splash.png",
       "resizeMode": "cover",
-      "backgroundColor": "#EAF2E1"
+      "backgroundColor": "#F9F7F2"
     },
     "scheme": "nokkang",
     "userInterfaceStyle": "automatic",
@@ -52,7 +52,7 @@
           "image": "./assets/images/splash.png",
           "imageWidth": 200,
           "resizeMode": "cover",
-          "backgroundColor": "#EAF2E1",
+          "backgroundColor": "#F9F7F2",
           "dark": {
             "backgroundColor": "#1C1C1E"
           }
