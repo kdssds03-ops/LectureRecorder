@@ -10,6 +10,7 @@
  */
 import axios, { AxiosResponse } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LectureType } from '@/store/useRecordingStore';
 
 // ── Config helpers ────────────────────────────────────────────────────────────
 
@@ -223,6 +224,7 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
 /**
  * Quick transcription for real-time updates (30s chunks).
  * Returns the text directly.
+ * Polling timeout extended to 45s for reliability.
  */
 export async function quickTranscribe(audioUri: string): Promise<string> {
   const baseUrl = await getBackendUrl();
@@ -248,7 +250,7 @@ export async function quickTranscribe(audioUri: string): Promise<string> {
           'x-app-key': secret,
           'Content-Type': 'multipart/form-data',
         },
-        timeout: 30_000,
+        timeout: 60_000, // Extended to 60s for reliability
         ...ACCEPT_ALL,
       }
     );
@@ -263,8 +265,12 @@ export async function quickTranscribe(audioUri: string): Promise<string> {
 /**
  * Send transcript text to backend → backend calls OpenAI → return summary + suggested title.
  * Returns { summary, suggestedName } where suggestedName is a concise title (≤20 chars).
+ * lectureType is passed to the backend to generate category-specific summaries.
  */
-export async function summarizeText(text: string): Promise<{ summary: string; suggestedName: string }> {
+export async function summarizeText(
+  text: string,
+  lectureType: LectureType = 'general'
+): Promise<{ summary: string; suggestedName: string }> {
   const baseUrl = await getBackendUrl();
   const headers = await buildHeaders();
 
@@ -274,7 +280,7 @@ export async function summarizeText(text: string): Promise<{ summary: string; su
 
   const res = await axios.post(
     `${baseUrl}/api/summarize`,
-    { text },
+    { text, lectureType },
     { headers, timeout: 90_000, ...ACCEPT_ALL }
   );
   assertStatus(res);

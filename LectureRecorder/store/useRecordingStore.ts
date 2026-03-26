@@ -8,6 +8,50 @@ export interface Folder {
   createdAt: number;
 }
 
+export type LectureType =
+  | 'general'
+  | 'math'
+  | 'science'
+  | 'coding'
+  | 'humanities'
+  | 'language'
+  | 'history'
+  | 'economics'
+  | 'law'
+  | 'medicine'
+  | 'art'
+  | 'other';
+
+export const LECTURE_TYPE_LABELS: Record<LectureType, string> = {
+  general: '일반',
+  math: '수학',
+  science: '과학',
+  coding: '코딩 / 프로그래밍',
+  humanities: '인문학',
+  language: '어문학 / 언어',
+  history: '역사',
+  economics: '경제 / 경영',
+  law: '법학',
+  medicine: '의학 / 생명과학',
+  art: '예술 / 디자인',
+  other: '기타',
+};
+
+export const LECTURE_TYPE_ICONS: Record<LectureType, string> = {
+  general: '📚',
+  math: '📐',
+  science: '🔬',
+  coding: '💻',
+  humanities: '🧠',
+  language: '🗣️',
+  history: '🏛️',
+  economics: '📊',
+  law: '⚖️',
+  medicine: '🩺',
+  art: '🎨',
+  other: '📝',
+};
+
 export interface RecordingMeta {
   id: string;
   name: string;
@@ -17,6 +61,7 @@ export interface RecordingMeta {
   duration: number; // in milliseconds
   createdAt: number;
   folderId: string | null;  // which folder this recording belongs to
+  lectureType?: LectureType;
   transcript?: string;
   summary?: string;
   translation?: string;
@@ -134,7 +179,10 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
 
     try {
       const { summarizeText } = require('@/api/aiService');
-      const { summary, suggestedName } = await summarizeText(recording.transcript);
+      const { summary, suggestedName } = await summarizeText(
+        recording.transcript,
+        recording.lectureType ?? 'general'
+      );
       
       const updates: Partial<RecordingMeta> = { 
         summary, 

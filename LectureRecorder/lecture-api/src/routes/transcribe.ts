@@ -74,7 +74,7 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
 /**
  * POST /api/transcribe/quick
  * Quick transcription for real-time updates (30s chunks).
- * Returns the text directly after a short poll.
+ * Returns the text directly after polling. Timeout extended to 45s.
  */
 router.post('/quick', upload.single('audio'), async (req: Request, res: Response) => {
   if (!req.file) {
@@ -108,25 +108,32 @@ router.post('/quick', upload.single('audio'), async (req: Request, res: Response
     );
     const jobId = transcriptRes.data.id;
 
-    // Step 3: Fast poll (max 10s)
-    for (let i = 0; i < 10; i++) {
+    // Step 3: Fast poll — extended to 45 attempts (45s) for reliability
+    for (let i = 0; i < 45; i++) {
       await new Promise(resolve => setTimeout(resolve, 1000));
       const pollRes = await axios.get(`https://api.assemblyai.com/v2/transcript/${jobId}`, {
         headers: { authorization: config.assemblyAiKey },
+        timeout: 10_000,
       });
       
       if (pollRes.data.status === 'completed') {
-        res.json({ text: pollRes.data.text });
+        res.json({ text: pollRes.data.text ?? '' });
         return;
       } else if (pollRes.data.status === 'error') {
-        throw new Error(pollRes.data.error);
+        console.error('[transcribe/quick] AssemblyAI error:', pollRes.data.error);
+        // Return empty text instead of error to avoid breaking real-time flow
+        res.json({ text: '' });
+        return;
       }
     }
 
-    res.status(202).json({ error: 'Transcription timed out, but still processing.' });
+    // Timed out — return empty text gracefully
+    console.warn('[transcribe/quick] Polling timed out after 45s, returning empty text');
+    res.json({ text: '' });
   } catch (err: any) {
     console.error('[transcribe/quick] Error:', err.message);
-    res.status(500).json({ error: '실시간 음성 인식에 실패했습니다.' });
+    // Return empty text on error to avoid breaking real-time transcription flow
+    res.status(200).json({ text: '' });
   }
 });
 
