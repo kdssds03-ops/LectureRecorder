@@ -114,7 +114,9 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
   try {
     const jobBody: Record<string, unknown> = {
       audio_url: audioUrl,
-      speech_model: 'best',
+      // `speech_model` (singular string) was deprecated and now causes HTTP 400/500.
+      // The current API shape uses `speech_models` (plural) as a string array.
+      speech_models: ['universal-3-pro', 'universal-2'],
       language_detection: true,
       speaker_labels: diarize,
     };
@@ -131,16 +133,17 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
   } catch (jobErr: any) {
     const status = jobErr.response?.status;
     const detail = jobErr.response?.data ?? jobErr.message;
+    // Serialize the full upstream response body so the rejection reason is always visible in logs.
+    const detailStr = typeof detail === 'object' ? JSON.stringify(detail) : String(detail);
     console.error(
-      `[transcribe] AssemblyAI job create FAILED — elapsed=${elapsed()}, HTTP ${status ?? 'n/a'}:`,
-      detail
+      `[transcribe] AssemblyAI job create FAILED — elapsed=${elapsed()}, HTTP ${status ?? 'n/a'}: ${detailStr}`
     );
     cleanupTempFile(tmpPath);
     res.status(502).json({
       error: '음성 인식 작업 생성에 실패했습니다.',
       phase: 'assemblyai_job_create',
       httpStatus: status,
-      detail: typeof detail === 'object' ? JSON.stringify(detail) : String(detail),
+      detail: detailStr,
     });
     return;
   }
@@ -193,7 +196,8 @@ router.post('/quick', upload.single('audio'), async (req: Request, res: Response
       'https://api.assemblyai.com/v2/transcript',
       {
         audio_url: audioUrl,
-        speech_model: 'nano',
+        // `speech_model` (singular string) is deprecated — use `speech_models` string array.
+        speech_models: ['universal-2'],
         language_code: 'ko',
       },
       {
