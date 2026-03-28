@@ -1,26 +1,25 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import { Colors } from '@/constants/Colors';
+import { Radius, Shadows, Spacing, Typography } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useFolderStore } from '@/store/useFolderStore';
+import { useRecordingStore } from '@/store/useRecordingStore';
+import { Feather, Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
+  LayoutAnimation,
+  Modal,
+  Platform,
+  SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
-  View,
-  TouchableOpacity,
-  ScrollView,
-  SafeAreaView,
-  StatusBar,
   TextInput,
-  LayoutAnimation,
-  Platform,
+  TouchableOpacity,
   UIManager,
-  Alert,
-  Modal,
+  View
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { MaterialIcons, Feather, Ionicons } from '@expo/vector-icons';
-import { useRecordingStore } from '@/store/useRecordingStore';
-import { useFolderStore } from '@/store/useFolderStore';
-import { Colors } from '@/constants/Colors';
-import { Spacing, Radius, Typography, Shadows } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -80,10 +79,10 @@ export default function HomeScreen() {
       activeOpacity={0.6}
     >
       <View style={styles.recordingIconContainer}>
-        <MaterialIcons 
-          name={item.transcript ? "description" : "mic-none"} 
-          size={24} 
-          color={theme.textSecondary} 
+        <MaterialIcons
+          name={item.transcript ? "description" : "mic-none"}
+          size={24}
+          color={theme.textSecondary}
         />
       </View>
       <View style={styles.recordingInfo}>
@@ -100,7 +99,7 @@ export default function HomeScreen() {
   const renderFolderSection = (folderId: string, folderName: string) => {
     // Defense code: ensure expandedFolders is an array
     const isExpanded = (expandedFolders || []).includes(folderId);
-    const folderRecordings = filteredRecordings.filter((r) => 
+    const folderRecordings = filteredRecordings.filter((r) =>
       folderId === 'uncategorized' ? !r.folderId : r.folderId === folderId
     );
 
@@ -159,27 +158,17 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
-      
-      {/* Header with Floating Action Group from Image */}
-      <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: theme.accent }]}>노깡</Text>
-        
-        <View style={[styles.actionGroup, { backgroundColor: theme.floatingButton, ...Shadows.medium }]}>
-          <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/record')}>
-            <Feather name="plus" size={22} color={theme.background} />
+      {/* Top Header Actions */}
+      <View style={styles.headerTopArea}>
+        <View style={[styles.actionPill, { backgroundColor: theme.surface, ...Shadows.soft }]}>
+          <TouchableOpacity onPress={() => router.push('/record')} style={styles.actionPillButton}>
+            <Feather name="file-plus" size={20} color={theme.text} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} onPress={() => setIsNewFolderModalVisible(true)}>
-            <MaterialIcons name="create-new-folder" size={22} color={theme.background} />
+          <TouchableOpacity onPress={handleNewFolder} style={styles.actionPillButton}>
+            <Feather name="folder-plus" size={20} color={theme.text} />
           </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.actionButton} 
-            onPress={() => {
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-              setIsSearching(!isSearching);
-            }}
-          >
-            <Feather name="search" size={20} color={theme.background} />
+          <TouchableOpacity onPress={() => router.push('/settings')} style={styles.actionPillButton}>
+            <Feather name="settings" size={20} color={theme.text} />
           </TouchableOpacity>
         </View>
       </View>
@@ -205,14 +194,14 @@ export default function HomeScreen() {
         </View>
       )}
 
-      <ScrollView 
+      <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.listContent}>
           {/* Uncategorized recordings first (Default Notes) */}
           {renderFolderSection('uncategorized', '기본 노트')}
-          
+
           {/* User Folders */}
           {folders.map((folder) => renderFolderSection(folder.id, folder.name))}
         </View>
@@ -231,9 +220,9 @@ export default function HomeScreen() {
 
       {/* New Folder Modal */}
       <Modal visible={isNewFolderModalVisible} transparent animationType="fade">
-        <TouchableOpacity 
-          style={styles.modalOverlay} 
-          activeOpacity={1} 
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
           onPress={() => setIsNewFolderModalVisible(false)}
         >
           <View style={[styles.modalContent, { backgroundColor: theme.surface, ...Shadows.medium }]}>
@@ -247,14 +236,14 @@ export default function HomeScreen() {
               autoFocus
             />
             <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={[styles.modalButton, { borderColor: theme.border }]} 
+              <TouchableOpacity
+                style={[styles.modalButton, { borderColor: theme.border }]}
                 onPress={() => setIsNewFolderModalVisible(false)}
               >
                 <Text style={{ color: theme.textSecondary, ...Typography.bodyMedium }}>취소</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.modalButton, { backgroundColor: theme.text }]} 
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: theme.text }]}
                 onPress={handleNewFolder}
               >
                 <Text style={{ color: theme.background, ...Typography.bodyMedium, fontWeight: '700' }}>생성</Text>

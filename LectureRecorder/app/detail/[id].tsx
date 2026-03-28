@@ -1,26 +1,26 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { transcribeAudio, translateText } from '@/api/aiService';
+import Snackbar from '@/components/Snackbar';
+import { Colors } from '@/constants/Colors';
+import { Radius, Shadows, Spacing, Typography } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useRecordingStore } from '@/store/useRecordingStore';
+import { Feather, MaterialIcons } from '@expo/vector-icons';
+import { Audio } from 'expo-av';
+import * as Clipboard from 'expo-clipboard';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  StyleSheet,
-  Text,
-  View,
-  TouchableOpacity,
-  SafeAreaView,
-  ScrollView,
   ActivityIndicator,
   Alert,
   Modal,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
   TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MaterialIcons, Feather } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
-import { useRecordingStore, LECTURE_TYPE_LABELS, LECTURE_TYPE_ICONS } from '@/store/useRecordingStore';
-import { Colors } from '@/constants/Colors';
-import { Spacing, Radius, Typography, Shadows } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import { transcribeAudio, translateText } from '@/api/aiService';
-import * as Clipboard from 'expo-clipboard';
-import Snackbar from '@/components/Snackbar';
 
 type TabType = 'transcript' | 'summary' | 'translation';
 
@@ -104,12 +104,12 @@ export default function DetailScreen() {
   useEffect(() => {
     return () => {
       if (sound) {
-        sound.unloadAsync().catch(() => {});
+        sound.unloadAsync().catch(() => { });
       }
       Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
-      }).catch(() => {});
+      }).catch(() => { });
     };
   }, [sound]);
 
@@ -191,7 +191,9 @@ export default function DetailScreen() {
     setIsProcessing(true);
     setProcessingStatus('번역 중...');
     try {
-      const result = await translateText(recording.transcript);
+      const { useSettingsStore } = require('@/store/useSettingsStore');
+      const translationLanguage = useSettingsStore.getState().translationLanguage || 'en';
+      const result = await translateText(recording.transcript, translationLanguage);
       updateRecording(recording.id, { translation: result });
     } catch (error: any) {
       Alert.alert('번역 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
@@ -208,26 +210,18 @@ export default function DetailScreen() {
     if (activeTab === 'transcript' && recording.transcript) {
       textToCopy = recording.transcript;
     } else if (activeTab === 'summary' && recording.summary) {
-      const structured = parseStructuredSummary(recording.summary);
-      if (structured) {
-        const parts: string[] = [];
-        if (structured.overview) parts.push(`개요\n${structured.overview}`);
-        if (structured.keyPoints?.length) {
-          parts.push(`핵심 포인트\n${structured.keyPoints.map(p => `• ${p}`).join('\n')}`);
-        }
-        if (structured.details?.length) {
-          parts.push(structured.details.map(d => `${d.heading}\n${d.content}`).join('\n\n'));
-        }
-        if (structured.keywords?.length) {
-          parts.push(`키워드: ${structured.keywords.join(', ')}`);
-        }
-        if (structured.studyTips) parts.push(`학습 팁\n${structured.studyTips}`);
-        textToCopy = parts.join('\n\n');
+      const summaryData = typeof recording.summary === 'object' ? recording.summary as any : null;
+      if (summaryData && typeof summaryData.summary === 'string') {
+        textToCopy = summaryData.summary;
       } else {
         textToCopy = String(recording.summary);
       }
     } else if (activeTab === 'translation' && recording.translation) {
       textToCopy = recording.translation;
+    } else if (activeTab === 'translation' && !recording.translation) {
+      setSnackbarMessage('복사할 번역 내용이 없습니다.');
+      setSnackbarVisible(true);
+      return;
     }
 
     if (textToCopy && textToCopy.trim()) {
@@ -264,105 +258,40 @@ export default function DetailScreen() {
       if (!line) continue;
       if (timestampRegex.test(line)) {
         elements.push(
-          <View key={`ts-${i}`} style={[styles.timestampPill, { backgroundColor: theme.unselectedChip }]}>
+          <View
+            key={`ts-${i}`}
+            style={[styles.timestampPill, { backgroundColor: theme.unselectedChip }]}
+          >
             <Text style={[styles.timestampText, { color: theme.textSecondary }]}>{line}</Text>
           </View>
         );
       } else {
         elements.push(
-          <Text key={`txt-${i}`} style={[styles.transcriptBody, { color: theme.text }]}>{line}</Text>
+          <Text key={`txt-${i}`} style={[styles.transcriptBody, { color: theme.text }]}>
+            {line}
+          </Text>
         );
       }
     }
-    return elements.length > 0 ? elements : (
-      <Text style={[styles.transcriptBody, { color: theme.text }]}>{text}</Text>
-    );
-  };
-
-  const renderStructuredSummary = (structured: StructuredSummary) => {
-    const lectureType = recording?.lectureType ?? structured.lectureType;
-    const typeLabel = lectureType ? LECTURE_TYPE_LABELS[lectureType as keyof typeof LECTURE_TYPE_LABELS] : null;
-    const typeIcon = lectureType ? LECTURE_TYPE_ICONS[lectureType as keyof typeof LECTURE_TYPE_ICONS] : null;
-
-    return (
-      <View style={styles.summaryContainer}>
-        {typeLabel && (
-          <View style={[styles.categoryBadge, { backgroundColor: theme.unselectedChip }]}>
-            {typeIcon && <Text style={styles.categoryIcon}>{typeIcon}</Text>}
-            <Text style={[styles.categoryLabel, { color: theme.textSecondary }]}>{typeLabel}</Text>
-          </View>
-        )}
-
-        {structured.overview ? (
-          <View style={styles.summarySection}>
-            <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>개요</Text>
-            <View style={[styles.overviewCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={[styles.overviewText, { color: theme.text }]}>{structured.overview}</Text>
-            </View>
-          </View>
-        ) : null}
-
-        {structured.keyPoints?.length > 0 && (
-          <View style={styles.summarySection}>
-            <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>핵심 포인트</Text>
-            <View style={[styles.keyPointsCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              {structured.keyPoints.map((point, idx) => (
-                <View key={idx} style={styles.keyPointRow}>
-                  <View style={[styles.keyPointDot, { backgroundColor: theme.primary }]} />
-                  <Text style={[styles.keyPointText, { color: theme.text }]}>{point}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {structured.details?.length > 0 && (
-          <View style={styles.summarySection}>
-            <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>상세 내용</Text>
-            {structured.details.map((detail, idx) => (
-              <View key={idx} style={[styles.detailCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                <Text style={[styles.detailHeading, { color: theme.text }]}>{detail.heading}</Text>
-                <Text style={[styles.detailContent, { color: theme.textSecondary }]}>{detail.content}</Text>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {structured.keywords?.length > 0 && (
-          <View style={styles.summarySection}>
-            <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>키워드</Text>
-            <View style={styles.keywordsRow}>
-              {structured.keywords.map((kw, idx) => (
-                <View key={idx} style={[styles.keywordChip, { backgroundColor: theme.unselectedChip }]}>
-                  <Text style={[styles.keywordText, { color: theme.text }]}>{kw}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {structured.studyTips ? (
-          <View style={styles.summarySection}>
-            <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>학습 팁</Text>
-            <View style={[styles.studyTipsCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <MaterialIcons name="lightbulb-outline" size={18} color={theme.primary} style={{ marginRight: 8 }} />
-              <Text style={[styles.studyTipsText, { color: theme.text, flex: 1 }]}>{structured.studyTips}</Text>
-            </View>
-          </View>
-        ) : null}
-      </View>
-    );
+    return elements.length > 0 ? elements : <Text style={[styles.transcriptBody, { color: theme.text }]}>{text}</Text>;
   };
 
   const renderSummary = () => {
     if (!recording?.summary) return null;
-    const structured = parseStructuredSummary(recording.summary);
-    if (structured) return renderStructuredSummary(structured);
-    return (
-      <View style={styles.summaryContainer}>
-        <Text style={[styles.transcriptBody, { color: theme.text }]}>{String(recording.summary)}</Text>
-      </View>
-    );
+    const summaryData = typeof recording.summary === 'object' ? recording.summary as any : null;
+
+    if (summaryData && typeof summaryData.summary === 'string') {
+      return (
+        <View style={styles.summaryContainer}>
+          <Text style={[styles.summarySectionTitle, { color: theme.text }]}>핵심 요약</Text>
+          <View style={[styles.summaryCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.summaryText, { color: theme.text }]}>{summaryData.summary}</Text>
+          </View>
+        </View>
+      );
+    }
+
+    return <Text style={[styles.transcriptBody, { color: theme.text }]}>{String(recording.summary)}</Text>;
   };
 
   return (
@@ -382,11 +311,17 @@ export default function DetailScreen() {
               onPress={() => setActiveTab(tab)}
               style={[
                 styles.pillTab,
-                activeTab === tab && [styles.pillTabActive, { backgroundColor: theme.surface, ...Shadows.soft }],
+                activeTab === tab &&
+                [styles.pillTabActive, { backgroundColor: theme.surface, ...Shadows.soft }],
               ]}
               disabled={isProcessing}
             >
-              <Text style={[styles.pillTabText, { color: activeTab === tab ? theme.text : theme.textSecondary }]}>
+              <Text
+                style={[
+                  styles.pillTabText,
+                  { color: activeTab === tab ? theme.text : theme.textSecondary },
+                ]}
+              >
                 {tab === 'transcript' ? '음성인식' : tab === 'summary' ? '요약' : '메모'}
               </Text>
             </TouchableOpacity>
@@ -394,31 +329,29 @@ export default function DetailScreen() {
         </View>
 
         <TouchableOpacity
-          onPress={() => { setEditTitleDraft(displayName); setIsEditingTitle(true); }}
+          onPress={() => setIsEditingTitle(true)}
           style={[styles.circularButton, { backgroundColor: theme.surface, ...Shadows.soft }]}
         >
           <Feather name="more-horizontal" size={24} color={theme.text} />
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Player section */}
         <View style={styles.playerSection}>
-          <Text style={[styles.recordingTitle, { color: theme.text }]} numberOfLines={2}>
-            {displayName}
-          </Text>
-
-          {recording?.lectureType && (
-            <View style={[styles.lectureTypeBadge, { backgroundColor: theme.unselectedChip }]}>
-              <Text style={styles.lectureTypeIcon}>{LECTURE_TYPE_ICONS[recording.lectureType]}</Text>
-              <Text style={[styles.lectureTypeLabel, { color: theme.textSecondary }]}>
-                {LECTURE_TYPE_LABELS[recording.lectureType]}
-              </Text>
-            </View>
-          )}
-
           <View style={styles.playerControlsRow}>
-            <TouchableOpacity onPress={togglePlayback} style={[styles.playCircle, { backgroundColor: theme.text }]}>
-              <MaterialIcons name={isPlaying ? 'pause' : 'play-arrow'} size={28} color={theme.background} />
+            <TouchableOpacity
+              onPress={togglePlayback}
+              style={[styles.playCircle, { backgroundColor: theme.text }]}
+            >
+              <MaterialIcons
+                name={isPlaying ? 'pause' : 'play-arrow'}
+                size={28}
+                color={theme.background}
+              />
             </TouchableOpacity>
 
             <Text style={[styles.timeText, { color: theme.textSecondary, marginLeft: Spacing.sm }]}>
@@ -426,69 +359,79 @@ export default function DetailScreen() {
             </Text>
 
             <View style={styles.sliderTrack}>
-              <View style={[styles.sliderFill, { width: `${progressWidth}%`, backgroundColor: theme.primary }]} />
-              <View style={[styles.sliderKnob, { left: `${progressWidth}%`, backgroundColor: theme.surface, ...Shadows.soft }]} />
+              <View
+                style={[
+                  styles.sliderFill,
+                  { width: `${progressWidth}%`, backgroundColor: theme.primary },
+                ]}
+              />
+              <View
+                style={[
+                  styles.sliderKnob,
+                  { left: `${progressWidth}%`, backgroundColor: theme.surface, ...Shadows.soft },
+                ]}
+              />
             </View>
 
             <Text style={[styles.timeText, { color: theme.textSecondary, marginRight: Spacing.sm }]}>
               {formatTime(playbackDuration || displayDuration)}
             </Text>
-
-            <TouchableOpacity onPress={cycleSpeed} style={[styles.speedButton, { backgroundColor: theme.unselectedChip }]}>
-              <Text style={[styles.speedText, { color: theme.text }]}>{playbackRate}x</Text>
-            </TouchableOpacity>
           </View>
         </View>
 
+        {/* Content area */}
         <View style={styles.contentArea}>
           {isProcessing ? (
             <View style={styles.processingContainer}>
               <ActivityIndicator size="large" color={theme.primary} />
-              <Text style={[styles.processingText, { color: theme.textSecondary }]}>{processingStatus}</Text>
+              <Text style={[styles.processingText, { color: theme.textSecondary }]}>
+                {processingStatus}
+              </Text>
             </View>
           ) : activeTab === 'transcript' ? (
             recording?.transcript ? (
               <View style={styles.transcriptSection}>{renderTranscript(recording.transcript)}</View>
             ) : (
               <View style={styles.emptyContentContainer}>
-                <MaterialIcons name="mic-none" size={48} color={theme.border} />
-                <Text style={[styles.emptyContentText, { color: theme.textSecondary }]}>아직 변환된 텍스트가 없어요</Text>
+                <Text style={[styles.emptyContentText, { color: theme.textSecondary }]}>
+                  아직 변환된 텍스트가 없어요
+                </Text>
                 <TouchableOpacity style={[styles.actionButton, { backgroundColor: theme.primary, ...Shadows.soft }]} onPress={handleTranscribe}>
                   <Text style={styles.actionButtonText}>음성 인식 시작</Text>
                 </TouchableOpacity>
               </View>
             )
           ) : activeTab === 'summary' ? (
-            recording?.isSummarizing ? (
-              <View style={styles.processingContainer}>
-                <ActivityIndicator size="large" color={theme.primary} />
-                <Text style={[styles.processingText, { color: theme.textSecondary }]}>AI 요약 생성 중...</Text>
-              </View>
-            ) : recording?.summary ? (
+            recording?.summary ? (
               renderSummary()
             ) : (
               <View style={styles.emptyContentContainer}>
-                <MaterialIcons name="auto-awesome" size={48} color={theme.border} />
-                <Text style={[styles.emptyContentText, { color: theme.textSecondary }]}>텍스트 변환 후 요약을 생성해보세요</Text>
+                <Text style={[styles.emptyContentText, { color: theme.textSecondary }]}>
+                  텍스트 변환 후 요약을 생성해보세요
+                </Text>
                 <TouchableOpacity style={[styles.actionButton, { backgroundColor: theme.primary, ...Shadows.soft }]} onPress={handleSummarize}>
                   <Text style={styles.actionButtonText}>요약 노트 만들기</Text>
                 </TouchableOpacity>
               </View>
             )
-          ) : recording?.translation ? (
-            <Text style={[styles.transcriptBody, { color: theme.text }]}>{recording.translation}</Text>
           ) : (
-            <View style={styles.emptyContentContainer}>
-              <MaterialIcons name="translate" size={48} color={theme.border} />
-              <Text style={[styles.emptyContentText, { color: theme.textSecondary }]}>텍스트 변환 후 번역을 시작해보세요</Text>
-              <TouchableOpacity style={[styles.actionButton, { backgroundColor: theme.primary, ...Shadows.soft }]} onPress={handleTranslate}>
-                <Text style={styles.actionButtonText}>메모 작성 / 번역하기</Text>
-              </TouchableOpacity>
-            </View>
+            recording?.translation ? (
+              <Text style={[styles.transcriptBody, { color: theme.text }]}>{recording.translation}</Text>
+            ) : (
+              <View style={styles.emptyContentContainer}>
+                <Text style={[styles.emptyContentText, { color: theme.textSecondary }]}>
+                  텍스트 변환 후 번역을 시작해보세요
+                </Text>
+                <TouchableOpacity style={[styles.actionButton, { backgroundColor: theme.primary, ...Shadows.soft }]} onPress={handleTranslate}>
+                  <Text style={styles.actionButtonText}>메모 작성 / 번역하기</Text>
+                </TouchableOpacity>
+              </View>
+            )
           )}
         </View>
       </ScrollView>
 
+      {/* Bottom Action Area (Copy & Re-summarize) */}
       {recording?.transcript && (
         <View style={styles.bottomActionArea}>
           <TouchableOpacity
@@ -497,42 +440,57 @@ export default function DetailScreen() {
             activeOpacity={0.7}
           >
             <Feather name="copy" size={18} color={theme.textSecondary} style={{ marginRight: Spacing.sm }} />
-            <Text style={[styles.outlineButtonText, { color: theme.textSecondary }]}>복사</Text>
+            <Text style={[styles.outlineButtonText, { color: theme.textSecondary }]}>Copy</Text>
           </TouchableOpacity>
         </View>
       )}
 
+      {/* Title edit modal */}
       <Modal visible={isEditingTitle} transparent animationType="fade">
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setIsEditingTitle(false)}>
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setIsEditingTitle(false)}
+        >
           <View style={[styles.modalContent, { backgroundColor: theme.surface, ...Shadows.medium }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>노트 제목 변경</Text>
             <TextInput
-              style={[styles.modalInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
+              style={[
+                styles.modalInput,
+                { color: theme.text, borderColor: theme.border, backgroundColor: theme.background },
+              ]}
               value={editTitleDraft}
               onChangeText={setEditTitleDraft}
               autoFocus
             />
             <View style={styles.modalButtons}>
-              <TouchableOpacity style={[styles.modalButton, { borderColor: theme.border }]} onPress={() => setIsEditingTitle(false)}>
+              <TouchableOpacity
+                style={[styles.modalButton, { borderColor: theme.border }]}
+                onPress={() => setIsEditingTitle(false)}
+              >
                 <Text style={{ color: theme.textSecondary, ...Typography.bodyMedium }}>취소</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalButton, { backgroundColor: theme.text }]}
                 onPress={() => {
-                  if (editTitleDraft.trim()) {
-                    updateRecording(id as string, { name: editTitleDraft.trim(), titleSource: 'user' });
-                  }
+                  if (editTitleDraft.trim()) updateRecording(id as string, { name: editTitleDraft.trim() });
                   setIsEditingTitle(false);
                 }}
               >
-                <Text style={{ color: theme.background, ...Typography.bodyMedium, fontWeight: '700' }}>저장</Text>
+                <Text style={{ color: theme.background, ...Typography.bodyMedium, fontWeight: '700' }}>
+                  저장
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
         </TouchableOpacity>
       </Modal>
 
-      <Snackbar visible={snackbarVisible} message={snackbarMessage} onDismiss={() => setSnackbarVisible(false)} />
+      <Snackbar
+        visible={snackbarVisible}
+        message={snackbarMessage}
+        onDismiss={() => setSnackbarVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -543,75 +501,187 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: Spacing.screenPadding, paddingTop: Spacing.xl, paddingBottom: Spacing.md,
   },
-  circularButton: { width: 44, height: 44, borderRadius: Radius.pill, justifyContent: 'center', alignItems: 'center' },
-  pillTabsContainer: { flexDirection: 'row', borderRadius: Radius.pill, padding: 4 },
-  pillTab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: Radius.pill },
-  pillTabActive: { borderRadius: Radius.pill },
-  pillTabText: { ...Typography.bodyMedium, fontWeight: '600' },
-  scrollContent: { paddingHorizontal: Spacing.screenPadding, paddingBottom: 100 },
-  playerSection: { paddingVertical: Spacing.lg },
-  recordingTitle: { ...Typography.titleMedium, fontWeight: '700', marginBottom: Spacing.sm },
-  lectureTypeBadge: {
-    flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: Radius.pill, marginBottom: Spacing.md, gap: 4,
+  circularButton: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.pill,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  lectureTypeIcon: { fontSize: 14 },
-  lectureTypeLabel: { ...Typography.caption, fontWeight: '500' },
-  playerControlsRow: { flexDirection: 'row', alignItems: 'center' },
-  playCircle: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
+  pillTabsContainer: {
+    flexDirection: 'row',
+    borderRadius: Radius.pill,
+    padding: 4,
+  },
+  pillTab: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: Radius.pill,
+  },
+  pillTabActive: {
+    borderRadius: Radius.pill,
+  },
+  pillTabText: {
+    ...Typography.bodyMedium,
+    fontWeight: '600',
+  },
+  scrollContent: {
+    paddingHorizontal: Spacing.screenPadding,
+    paddingBottom: 100
+  },
+  playerSection: {
+    paddingVertical: Spacing.lg,
+  },
+  playerControlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  playCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   sliderTrack: {
     flex: 1, height: 6, backgroundColor: '#E5E5EA', borderRadius: 3,
     marginHorizontal: Spacing.sm, flexDirection: 'row', alignItems: 'center',
   },
-  sliderFill: { height: '100%', borderRadius: 3 },
-  sliderKnob: { position: 'absolute', width: 20, height: 20, borderRadius: 10, marginLeft: -10 },
-  timeText: { ...Typography.caption },
-  speedButton: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.md, marginLeft: Spacing.sm },
-  speedText: { ...Typography.caption, fontWeight: '700' },
-  contentArea: { marginTop: Spacing.md },
-  transcriptSection: { flex: 1 },
+  sliderFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  sliderKnob: {
+    position: 'absolute',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginLeft: -10,
+  },
+  timeText: {
+    ...Typography.caption,
+  },
+  contentArea: {
+    marginTop: Spacing.md,
+  },
+  transcriptSection: {
+    flex: 1,
+  },
   timestampPill: {
     alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 4,
     borderRadius: Radius.pill, marginBottom: Spacing.sm, marginTop: Spacing.md,
   },
-  timestampText: { ...Typography.caption },
-  transcriptBody: { ...Typography.bodyMedium, lineHeight: 26, marginBottom: Spacing.md, letterSpacing: -0.2 },
-  summaryContainer: { marginTop: Spacing.sm },
-  categoryBadge: {
-    flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
-    paddingHorizontal: 12, paddingVertical: 5, borderRadius: Radius.pill, marginBottom: Spacing.lg, gap: 5,
+  timestampText: {
+    ...Typography.caption,
   },
-  categoryIcon: { fontSize: 14 },
-  categoryLabel: { ...Typography.bodySmall, fontWeight: '600' },
-  summarySection: { marginBottom: Spacing.xl },
-  sectionLabel: { ...Typography.caption, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: Spacing.sm },
-  overviewCard: { borderRadius: Radius.xl, padding: Spacing.lg, borderWidth: 1 },
-  overviewText: { ...Typography.bodyMedium, lineHeight: 26 },
-  keyPointsCard: { borderRadius: Radius.xl, padding: Spacing.lg, borderWidth: 1, gap: Spacing.sm },
-  keyPointRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
-  keyPointDot: { width: 7, height: 7, borderRadius: 4, marginTop: 7, flexShrink: 0 },
-  keyPointText: { ...Typography.bodyMedium, lineHeight: 24, flex: 1 },
-  detailCard: { borderRadius: Radius.xl, padding: Spacing.lg, borderWidth: 1, marginBottom: Spacing.sm },
-  detailHeading: { ...Typography.bodyMedium, fontWeight: '700', marginBottom: Spacing.xs },
-  detailContent: { ...Typography.bodyMedium, lineHeight: 24 },
-  keywordsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  keywordChip: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: Radius.pill },
-  keywordText: { ...Typography.bodySmall, fontWeight: '500' },
-  studyTipsCard: { borderRadius: Radius.xl, padding: Spacing.lg, borderWidth: 1, flexDirection: 'row', alignItems: 'flex-start' },
-  studyTipsText: { ...Typography.bodyMedium, lineHeight: 24 },
-  processingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 },
-  processingText: { marginTop: 16, ...Typography.bodyMedium },
-  emptyContentContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60, gap: Spacing.md },
-  emptyContentText: { ...Typography.bodyMedium, textAlign: 'center' },
-  actionButton: { paddingHorizontal: Spacing.xl, paddingVertical: 14, borderRadius: Radius.pill, marginTop: Spacing.sm },
-  actionButtonText: { color: '#FFFFFF', ...Typography.bodyMedium, fontWeight: '700' },
-  bottomActionArea: { position: 'absolute', bottom: Spacing.xl, right: Spacing.screenPadding, alignItems: 'flex-end' },
-  outlineButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingVertical: 10, borderRadius: Radius.pill, borderWidth: 1 },
-  outlineButtonText: { ...Typography.bodyMedium, fontWeight: '600' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center', padding: Spacing.screenPadding },
-  modalContent: { width: '100%', borderRadius: Radius.xl, padding: Spacing.xl },
-  modalTitle: { ...Typography.titleMedium, marginBottom: Spacing.lg, textAlign: 'center' },
-  modalInput: { height: 52, borderWidth: 1, borderRadius: Radius.lg, paddingHorizontal: Spacing.md, ...Typography.bodyMedium, marginBottom: Spacing.xl },
-  modalButtons: { flexDirection: 'row', gap: Spacing.md },
-  modalButton: { flex: 1, height: 52, borderRadius: Radius.lg, justifyContent: 'center', alignItems: 'center', borderWidth: 1 },
+  transcriptBody: {
+    ...Typography.bodyMedium,
+    lineHeight: 26,
+    marginBottom: Spacing.md,
+    letterSpacing: -0.2,
+  },
+  summaryContainer: {
+    marginTop: Spacing.md,
+  },
+  summarySectionTitle: {
+    ...Typography.bodyLarge,
+    marginBottom: Spacing.sm,
+  },
+  summaryCard: {
+    borderRadius: Radius.xl,
+    padding: Spacing.lg,
+    borderWidth: 1,
+    borderStyle: 'solid',
+  },
+  summaryText: {
+    ...Typography.bodyMedium,
+    lineHeight: 24,
+  },
+  processingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60
+  },
+  processingText: {
+    marginTop: 16,
+    ...Typography.bodyMedium,
+  },
+  emptyContentContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60
+  },
+  emptyContentText: {
+    marginTop: 16,
+    ...Typography.bodyMedium,
+    textAlign: 'center',
+    marginBottom: 24
+  },
+  actionButton: {
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: 14,
+    borderRadius: Radius.pill
+  },
+  actionButtonText: {
+    color: '#FFFFFF',
+    ...Typography.bodyMedium,
+    fontWeight: '700'
+  },
+  bottomActionArea: {
+    position: 'absolute',
+    bottom: Spacing.xl,
+    right: Spacing.screenPadding,
+    alignItems: 'flex-end',
+  },
+  outlineButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: 10,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+  },
+  outlineButtonText: {
+    ...Typography.bodyMedium,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.screenPadding
+  },
+  modalContent: {
+    width: '100%',
+    borderRadius: Radius.xl,
+    padding: Spacing.xl
+  },
+  modalTitle: {
+    ...Typography.titleMedium,
+    marginBottom: Spacing.lg,
+    textAlign: 'center'
+  },
+  modalInput: {
+    height: 52,
+    borderWidth: 1,
+    borderRadius: Radius.lg,
+    paddingHorizontal: Spacing.md,
+    ...Typography.bodyMedium,
+    marginBottom: Spacing.xl
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: Spacing.md
+  },
+  modalButton: {
+    flex: 1,
+    height: 52,
+    borderRadius: Radius.lg,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1
+  },
 });

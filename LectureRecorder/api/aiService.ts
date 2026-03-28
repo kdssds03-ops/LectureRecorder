@@ -8,9 +8,9 @@
  *   backend_url  — e.g. http://localhost:3000  or  https://your-app.up.railway.app
  *   app_secret   — matches APP_SECRET env var on the backend
  */
-import axios, { AxiosResponse } from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LectureType } from '@/store/useRecordingStore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios, { AxiosResponse } from 'axios';
 
 // ── Config helpers ────────────────────────────────────────────────────────────
 
@@ -49,12 +49,12 @@ export async function setDeveloperMode(enabled: boolean): Promise<void> {
 export async function getBackendUrl(): Promise<string> {
   console.log(`[Diagnostic] raw env EXPO_PUBLIC_BACKEND_URL: ${process.env.EXPO_PUBLIC_BACKEND_URL}`);
   const isDevMode = await getDeveloperMode();
-  
+
   if (__DEV__ && isDevMode) {
     const rawOverride = await getRawBackendOverride();
     console.log(`[Diagnostic] raw asyncStorage override: '${rawOverride}'`);
     const normalizedOverride = normalizeBaseUrl(rawOverride);
-    
+
     // Only use if it's a valid http or https URL
     if (normalizedOverride && (normalizedOverride.startsWith('http://') || normalizedOverride.startsWith('https://'))) {
       console.log(`[Diagnostic] getBackendUrl: resolved baseUrl (override) -> ${normalizedOverride}`);
@@ -63,7 +63,7 @@ export async function getBackendUrl(): Promise<string> {
       console.log(`[Diagnostic] getBackendUrl: ignored invalid override -> ${rawOverride}`);
     }
   }
-  
+
   console.log(`[Diagnostic] getBackendUrl: resolved baseUrl (default) -> ${DEFAULT_BACKEND_URL}`);
   return DEFAULT_BACKEND_URL;
 }
@@ -143,7 +143,7 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
 
   const baseUrl = await getBackendUrl();
   console.log(`[Diagnostic] resolved baseUrl: ${baseUrl}`);
-  
+
   const finalUrl = `${baseUrl}/api/transcribe/`;
   console.log(`[Diagnostic] final POST URL: ${finalUrl}`);
   console.log(`[Diagnostic] audio URI: ${audioUri}`);
@@ -163,45 +163,25 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
   } as unknown as Blob);
 
   console.log(`[transcribe] upload started at ${new Date().toISOString()}`);
+  console.log(`[transcribe] audio file — uri=${audioUri}, name=audio.m4a, type=audio/m4a`);
   let uploadRes;
-  let retryCount = 0;
-  const MAX_RETRIES = 3;
-
-  while (retryCount < MAX_RETRIES) {
-    try {
-      uploadRes = await axios.post(
-        finalUrl,
-        formData,
-        {
-          headers: {
-            'x-app-key': secret,
-            'Content-Type': 'multipart/form-data',
-          },
-          timeout: 120_000,
-          ...ACCEPT_ALL,
-        }
-      );
-      
-      // If 503 Service Unavailable, retry after a short delay
-      if (uploadRes.status === 503 && retryCount < MAX_RETRIES - 1) {
-        retryCount++;
-        console.log(`[transcribe] upload 503 error, retrying (${retryCount}/${MAX_RETRIES})...`);
-        await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
-        continue;
+  try {
+    uploadRes = await axios.post(
+      finalUrl,
+      formData,
+      {
+        headers: {
+          'x-app-key': secret,
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: 120_000,
+        ...ACCEPT_ALL,
       }
-      
-      assertStatus(uploadRes);
-      break; // Success or non-retryable error
-    } catch (err: any) {
-      if (retryCount < MAX_RETRIES - 1 && (err.message.includes('503') || err.message.includes('Network Error'))) {
-        retryCount++;
-        console.log(`[transcribe] upload failed, retrying (${retryCount}/${MAX_RETRIES})... error: ${err.message}`);
-        await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
-        continue;
-      }
-      console.log(`[Diagnostic] upload failed at ${new Date().toISOString()} | elapsed: ${elapsed()} | error: ${err.message}`);
-      throw err;
-    }
+    );
+    assertStatus(uploadRes); // throws with populated error.response on 4xx/5xx
+  } catch (err: any) {
+    console.log(`[Diagnostic] upload failed at ${new Date().toISOString()} | elapsed: ${elapsed()} | error: ${err.message}`);
+    throw err;
   }
 
   const jobId: string = uploadRes.data?.jobId;
@@ -371,12 +351,12 @@ export async function generateRecordingTitle(text: string): Promise<string> {
     { text },
     { headers, timeout: 30_000, ...ACCEPT_ALL }
   );
-  
+
   console.log(`[Diagnostic] generateRecordingTitle: HTTP ${res.status}`);
   if (res.status !== 200) {
-     console.log(`[Diagnostic] generateRecordingTitle error response: ${JSON.stringify(res.data)}`);
+    console.log(`[Diagnostic] generateRecordingTitle error response: ${JSON.stringify(res.data)}`);
   }
-  
+
   assertStatus(res);
 
   const finalTitle = (res.data as { title: string }).title;

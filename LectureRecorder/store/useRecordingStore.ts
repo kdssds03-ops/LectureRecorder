@@ -1,6 +1,6 @@
-import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
+import { create } from 'zustand';
 
 export interface Folder {
   id: string;
@@ -135,7 +135,7 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
     console.log(`[Diagnostic] generateTitleFromText triggered for recordingId: ${recordingId}`);
     const { recordings, updateRecording } = get();
     const recording = recordings.find(r => r.id === recordingId);
-    
+
     // Only auto-generate if 'default' or 'ai'. Never overwrite 'user' titles.
     if (!recording) {
       console.log(`[Diagnostic] generateTitleFromText aborted: recording not found`);
@@ -151,7 +151,7 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
       const { generateRecordingTitle } = require('@/api/aiService');
       const newTitle = await generateRecordingTitle(text);
       console.log(`[Diagnostic] generateTitleFromText: API returned new title -> '${newTitle}'`);
-      
+
       if (newTitle) {
         // Guard against race conditions: check state hasn't changed to 'user' during await!
         const currentRecording = get().recordings.find(r => r.id === recordingId);
@@ -171,7 +171,7 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
   fetchSummary: async (recordingId: string) => {
     const { recordings, updateRecording } = get();
     const recording = recordings.find(r => r.id === recordingId);
-    
+
     if (!recording || !recording.transcript) return;
 
     // Set loading state
@@ -179,21 +179,18 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
 
     try {
       const { summarizeText } = require('@/api/aiService');
-      const { summary, suggestedName } = await summarizeText(
-        recording.transcript,
-        recording.lectureType ?? 'general'
-      );
-      
-      const updates: Partial<RecordingMeta> = { 
-        summary, 
-        isSummarizing: false 
+      const { summary, suggestedName } = await summarizeText(recording.transcript);
+
+      const updates: Partial<RecordingMeta> = {
+        summary,
+        isSummarizing: false
       };
-      
+
       if (suggestedName && suggestedName.trim() !== '' && recording.titleSource !== 'user') {
         updates.name = suggestedName;
         updates.titleSource = 'ai';
       }
-      
+
       updateRecording(recordingId, updates);
 
       // Fallback: If no suggestedName arrived natively, trigger the dedicated title flow

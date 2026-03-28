@@ -6,6 +6,36 @@ import summarizeRouter from './routes/summarize';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ── Startup env validation ────────────────────────────────────────────────────
+// Log clearly which keys are present/missing so Railway logs immediately reveal
+// the cause of any 401 / 500 / 502 errors on first deploy.
+function validateEnv(): void {
+  console.log('[startup] Validating required environment variables...');
+  const checks = [
+    { key: 'ASSEMBLYAI_API_KEY', value: config.assemblyAiKey, desc: 'transcription (AssemblyAI)' },
+    { key: 'OPENAI_API_KEY',     value: config.openAiKey,     desc: 'summarization / translation / title' },
+    { key: 'APP_SECRET',         value: config.appSecret !== 'default_secret' ? config.appSecret : '', desc: 'request authentication' },
+  ];
+  let allOk = true;
+  for (const { key, value, desc } of checks) {
+    if (value) {
+      console.log(`[startup]   ✓ ${key} — configured (${desc})`);
+    } else {
+      console.warn(`[startup]   ✗ ${key} — MISSING — ${desc} will fail!`);
+      allOk = false;
+    }
+  }
+  if (config.appSecret === 'default_secret') {
+    console.warn('[startup]   ✗ APP_SECRET is the insecure default — set it in Railway dashboard');
+    allOk = false;
+  }
+  if (allOk) {
+    console.log('[startup] All required env vars are configured.');
+  } else {
+    console.warn('[startup] WARNING: One or more required env vars are missing. See above.');
+  }
+}
+
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -45,8 +75,9 @@ app.get('/health', (_req, res) => {
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     services: {
-      openai: config.openAiKey ? 'configured' : 'missing',
-      assemblyai: config.assemblyAiKey ? 'configured' : 'missing',
+      openai:     config.openAiKey     ? 'configured' : 'MISSING',
+      assemblyai: config.assemblyAiKey ? 'configured' : 'MISSING',
+      appSecret:  config.appSecret !== 'default_secret' ? 'configured' : 'INSECURE_DEFAULT',
     },
   });
 });
@@ -165,11 +196,9 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
+validateEnv();
 const server = app.listen(PORT, () => {
-  console.log(`[server] LectureRecorder API running on port ${PORT}`);
-  console.log(`[server] OpenAI: ${config.openAiKey ? 'configured' : 'MISSING'}`);
-  console.log(`[server] AssemblyAI: ${config.assemblyAiKey ? 'configured' : 'MISSING'}`);
-  console.log(`[server] App Secret: ${config.appSecret !== 'default_secret' ? 'configured' : 'using default (insecure!)'}`);
+  console.log(`[server] LectureRecorder API listening on port ${PORT}`);
 });
 
 // Increase server timeout for large file uploads (10 minutes)
