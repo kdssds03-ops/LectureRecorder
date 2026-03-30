@@ -52,6 +52,19 @@ export const LECTURE_TYPE_ICONS: Record<LectureType, string> = {
   other: '📝',
 };
 
+export interface StructuredSummary {
+  lectureType?: string;
+  overview: string;
+  keyPoints: string[];
+  details: { heading: string; content: string }[];
+  keywords: string[];
+  studyTips: string;
+}
+
+export function isStructuredSummary(summary: any): summary is StructuredSummary {
+  return typeof summary === 'object' && summary !== null && 'overview' in summary;
+}
+
 export interface RecordingMeta {
   id: string;
   name: string;
@@ -63,7 +76,7 @@ export interface RecordingMeta {
   folderId: string | null;  // which folder this recording belongs to
   lectureType?: LectureType;
   transcript?: string;
-  summary?: string;
+  summary?: string | StructuredSummary;
   translation?: string;
   isSummarizing?: boolean;
 }
@@ -179,7 +192,7 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
 
     try {
       const { summarizeText } = require('@/api/aiService');
-      const { summary, suggestedName } = await summarizeText(recording.transcript);
+      const { summary, suggestedName } = await summarizeText(recording.transcript, recording.lectureType || 'general');
 
       const updates: Partial<RecordingMeta> = {
         summary,

@@ -210,9 +210,21 @@ export default function DetailScreen() {
     if (activeTab === 'transcript' && recording.transcript) {
       textToCopy = recording.transcript;
     } else if (activeTab === 'summary' && recording.summary) {
-      const summaryData = typeof recording.summary === 'object' ? recording.summary as any : null;
-      if (summaryData && typeof summaryData.summary === 'string') {
-        textToCopy = summaryData.summary;
+      const summaryData = typeof recording.summary === 'object' ? recording.summary : parseStructuredSummary(String(recording.summary));
+      
+      if (summaryData) {
+        // Format structured summary for copying
+        const sections: string[] = [];
+        if (summaryData.overview) sections.push(`[개요]\n${summaryData.overview}`);
+        if (summaryData.keyPoints?.length) sections.push(`[핵심 포인트]\n${summaryData.keyPoints.map((p: string) => `• ${p}`).join('\n')}`);
+        if (summaryData.details?.length) {
+          const detailStr = summaryData.details.map((d: { heading: string; content: string }) => `${d.heading}: ${d.content}`).join('\n');
+          sections.push(`[상세 내용]\n${detailStr}`);
+        }
+        if (summaryData.keywords?.length) sections.push(`[키워드]\n${summaryData.keywords.join(', ')}`);
+        if (summaryData.studyTips) sections.push(`[학습 팁]\n${summaryData.studyTips}`);
+        
+        textToCopy = sections.join('\n\n');
       } else {
         textToCopy = String(recording.summary);
       }
@@ -278,19 +290,78 @@ export default function DetailScreen() {
 
   const renderSummary = () => {
     if (!recording?.summary) return null;
-    const summaryData = typeof recording.summary === 'object' ? recording.summary as any : null;
+    
+    // Attempt to get structured data (either already an object or a JSON string)
+    const structuredData = typeof recording.summary === 'object' 
+      ? (recording.summary as StructuredSummary)
+      : parseStructuredSummary(String(recording.summary));
 
-    if (summaryData && typeof summaryData.summary === 'string') {
+    if (structuredData) {
       return (
         <View style={styles.summaryContainer}>
-          <Text style={[styles.summarySectionTitle, { color: theme.text }]}>핵심 요약</Text>
-          <View style={[styles.summaryCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.summaryText, { color: theme.text }]}>{summaryData.summary}</Text>
+          {/* Overview */}
+          <Text style={[styles.summarySectionTitle, { color: theme.text }]}>강의 개요</Text>
+          <View style={[styles.summaryCard, { backgroundColor: theme.surface, borderColor: theme.border, marginBottom: Spacing.lg }]}>
+            <Text style={[styles.summaryText, { color: theme.text }]}>{structuredData.overview}</Text>
           </View>
+
+          {/* Key Points */}
+          {structuredData.keyPoints?.length > 0 && (
+            <>
+              <Text style={[styles.summarySectionTitle, { color: theme.text }]}>핵심 포인트</Text>
+              <View style={[styles.summaryCard, { backgroundColor: theme.surface, borderColor: theme.border, marginBottom: Spacing.lg }]}>
+                {structuredData.keyPoints.map((point, idx) => (
+                  <View key={`kp-${idx}`} style={styles.bulletRow}>
+                    <Text style={[styles.bullet, { color: theme.primary }]}>•</Text>
+                    <Text style={[styles.summaryText, { color: theme.text, flex: 1 }]}>{point}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* Details */}
+          {structuredData.details?.length > 0 && (
+            <>
+              <Text style={[styles.summarySectionTitle, { color: theme.text }]}>상세 내용</Text>
+              {structuredData.details.map((detail, idx) => (
+                <View key={`det-${idx}`} style={[styles.summaryCard, { backgroundColor: theme.surface, borderColor: theme.border, marginBottom: Spacing.md }]}>
+                  <Text style={[styles.detailHeading, { color: theme.primary }]}>{detail.heading}</Text>
+                  <Text style={[styles.summaryText, { color: theme.text }]}>{detail.content}</Text>
+                </View>
+              ))}
+            </>
+          )}
+
+          {/* Keywords */}
+          {structuredData.keywords?.length > 0 && (
+            <>
+              <Text style={[styles.summarySectionTitle, { color: theme.text }]}>주요 키워드</Text>
+              <View style={styles.keywordsGrid}>
+                {structuredData.keywords.map((keyword, idx) => (
+                  <View key={`kw-${idx}`} style={[styles.keywordBadge, { backgroundColor: theme.unselectedChip }]}>
+                    <Text style={[styles.keywordText, { color: theme.textSecondary }]}>#{keyword}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* Study Tips */}
+          {structuredData.studyTips && (
+            <View style={[styles.tipsCard, { backgroundColor: theme.primary + '10', borderColor: theme.primary + '30' }]}>
+              <View style={styles.tipsHeader}>
+                <MaterialIcons name="lightbulb-outline" size={20} color={theme.primary} />
+                <Text style={[styles.tipsTitle, { color: theme.primary }]}>학습 팁</Text>
+              </View>
+              <Text style={[styles.summaryText, { color: theme.text }]}>{structuredData.studyTips}</Text>
+            </View>
+          )}
         </View>
       );
     }
 
+    // Fallback for legacy plain text summaries
     return <Text style={[styles.transcriptBody, { color: theme.text }]}>{String(recording.summary)}</Text>;
   };
 
@@ -596,6 +667,53 @@ const styles = StyleSheet.create({
   summaryText: {
     ...Typography.bodyMedium,
     lineHeight: 24,
+  },
+  bulletRow: {
+    flexDirection: 'row',
+    marginBottom: Spacing.xs,
+  },
+  bullet: {
+    width: 20,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '700',
+  },
+  detailHeading: {
+    ...Typography.bodyMedium,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  keywordsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+    marginBottom: Spacing.lg,
+  },
+  keywordBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: Radius.md,
+  },
+  keywordText: {
+    ...Typography.caption,
+    fontWeight: '600',
+  },
+  tipsCard: {
+    borderRadius: Radius.xl,
+    padding: Spacing.lg,
+    borderWidth: 1,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.xl,
+  },
+  tipsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 6,
+  },
+  tipsTitle: {
+    ...Typography.bodyMedium,
+    fontWeight: '700',
   },
   processingContainer: {
     flex: 1,

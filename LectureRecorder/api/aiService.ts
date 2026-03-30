@@ -11,6 +11,7 @@
 import { LectureType } from '@/store/useRecordingStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios, { AxiosResponse } from 'axios';
+import * as FileSystem from 'expo-file-system/legacy';
 
 // ── Config helpers ────────────────────────────────────────────────────────────
 
@@ -203,6 +204,17 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
   const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
 
   console.log(`[transcribeAudio] ▶ started at ${new Date().toISOString()}`);
+
+  try {
+    const info = await FileSystem.getInfoAsync(audioUri);
+    if (info.exists && (info as any).size < 4000) {
+      console.log(`[transcribeAudio] audio file too small (${(info as any).size} bytes) — assuming silent and skipping upload.`);
+      return '';
+    }
+  } catch (err) {
+    // Ignore file validation errors and let the network upload try anyway
+  }
+
   console.log(`[transcribeAudio] EXPO_PUBLIC_BACKEND_URL (raw env): ${process.env.EXPO_PUBLIC_BACKEND_URL}`);
 
   const baseUrl = await getBackendUrl();
@@ -295,6 +307,11 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
       return transcript;
     }
     if (status === 'error') {
+      const isNoSpeech = error?.includes('no spoken audio') || error?.includes('language_detection cannot be performed');
+      if (isNoSpeech) {
+        console.log(`[transcribeAudio] polling detected silent audio safely after ${elapsed()}: ${error}`);
+        return '';
+      }
       console.error(`[transcribeAudio] job error after ${elapsed()}: ${error}`);
       throw new Error('음성 인식 실패: ' + (error ?? '알 수 없는 오류'));
     }
@@ -313,6 +330,16 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
 export async function quickTranscribe(audioUri: string): Promise<string> {
   const t0 = Date.now();
   const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
+
+  try {
+    const info = await FileSystem.getInfoAsync(audioUri);
+    if (info.exists && (info as any).size < 4000) {
+      console.log(`[quickTranscribe] audio file too small (${(info as any).size} bytes) — assuming silent and skipping upload.`);
+      return '';
+    }
+  } catch (err) {
+    // Ignore and proceed
+  }
 
   const baseUrl = await getBackendUrl();
   try {
@@ -373,6 +400,34 @@ export async function quickTranscribe(audioUri: string): Promise<string> {
 }
 
 /**
+ * Normalizes transcript text by removing common filler words, collapsing repetitions,
+ * and cleaning up whitespace. This is meant to reduce token usage and noise for AI.
+ */
+function normalizeTranscript(text: string): string {
+  if (!text) return '';
+
+  let cleaned = text;
+
+  // 1. Remove obvious fillers (case-insensitive for Latin, whole word where possible)
+  // Korean fillers
+  cleaned = cleaned.replace(/(?:^|\s)(?:음|어|그|저기|그게|이제|뭐)(?:\.{1,3}|\s|$)/g, ' ');
+
+  // English fillers (um, uh, er, ah, etc.)
+  cleaned = cleaned.replace(/\b(um|uh|er|ah|hmm)\b/gi, '');
+
+  // 2. Collapse immediate word repetitions (e.g., "그래서 그래서" -> "그래서")
+  // Only for common short words to avoid accidental meaning changes
+  cleaned = cleaned.replace(/\b(\w{1,5})\s+\1\b/g, '$1');
+  // Korean specific repetition (words ending with spaces/punctuation)
+  cleaned = cleaned.replace(/([가-힣]{1,3})\s+\1\b/g, '$1');
+
+  // 3. Normalize whitespace: collapse multiple spaces/newlines
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+
+  return cleaned;
+}
+
+/**
  * Send transcript text to backend → backend calls OpenAI → return summary + suggested title.
  * Returns { summary, suggestedName } where suggestedName is a concise title (≤20 chars).
  * lectureType is passed to the backend to generate category-specific summaries.
@@ -381,7 +436,8 @@ export async function summarizeText(
   text: string,
   lectureType: LectureType = 'general',
   language: string = 'ko'
-): Promise<{ summary: string; suggestedName: string }> {
+): Promise<{ summary: any; suggestedName: string }> {
+  const normalizedText = normalizeTranscript(text);
   const baseUrl = await getBackendUrl();
   const headers = await buildHeaders();
 
@@ -391,7 +447,7 @@ export async function summarizeText(
 
   const res = await axios.post(
     `${baseUrl}/api/summarize`,
-    { text, lectureType, language },
+    { text: normalizedText, lectureType, language },
     // Chunked path for long lectures can take several minutes on the backend;
     // 5 min gives enough headroom even for 60-min recordings.
     { headers, timeout: 300_000, ...ACCEPT_ALL }
@@ -399,8 +455,18 @@ export async function summarizeText(
   assertStatus(res);
 
   const data = res.data as { summary: string; suggestedName?: string };
+  
+  let parsedSummary: any = data.summary;
+  if (typeof data.summary === 'string') {
+    try {
+      parsedSummary = JSON.parse(data.summary);
+    } catch (err) {
+      console.warn('[summarizeText] Failed to parse summary JSON, falling back to raw string', err);
+    }
+  }
+
   return {
-    summary: data.summary,
+    summary: parsedSummary,
     suggestedName: data.suggestedName ?? '',
   };
 }

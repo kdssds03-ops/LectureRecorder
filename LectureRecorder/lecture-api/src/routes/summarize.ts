@@ -124,9 +124,9 @@ function buildSystemPrompt(lectureType: LectureType, language: SummaryLanguage =
 
   // Language-specific base prompts
   const basePrompts: Record<SummaryLanguage, string> = {
-    ko: `당신은 대학 강의 노트 전문가입니다. 주어진 강의 녹취록을 분석하여 아래 JSON 형식으로 정확하게 응답하세요.\n강의 분야: ${label}\n\n반드시 아래 JSON 형식만 출력하세요. 다른 텍스트는 절대 포함하지 마세요:\n{\n  "suggestedName": "강의 제목 (20자 이내)",\n  "overview": "이 강의의 핵심 내용을 2~3문장으로 요약",\n  "keyPoints": ["핵심 포인트 1", "핵심 포인트 2", "핵심 포인트 3"],\n  "details": [\n    { "heading": "소주제 제목", "content": "해당 소주제의 상세 설명" }\n  ],\n  "keywords": ["키워드1", "키워드2", "키워드3", "키워드4", "키워드5"],\n  "studyTips": "이 강의 내용을 효과적으로 학습하기 위한 팁 1~2문장"\n}`,
-    en: `You are an expert university lecture note specialist. Analyze the given lecture transcript and respond in the following JSON format.\nLecture Field: ${label}\n\nOutput ONLY the JSON format below. Do not include any other text:\n{\n  "suggestedName": "Lecture Title (max 20 characters)",\n  "overview": "Summary of the lecture's core content in 2-3 sentences",\n  "keyPoints": ["Key Point 1", "Key Point 2", "Key Point 3"],\n  "details": [\n    { "heading": "Subtopic Title", "content": "Detailed explanation of the subtopic" }\n  ],\n  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],\n  "studyTips": "Tips for effectively learning this lecture content in 1-2 sentences"\n}`,
-    zh: `您是大学讲座笔记专家。分析给定的讲座录音稿，并以以下JSON格式响应。\n讲座领域：${label}\n\n仅输出以下JSON格式。不包括任何其他文本：\n{\n  "suggestedName": "讲座标题（最多20个字符）",\n  "overview": "讲座核心内容的2-3句总结",\n  "keyPoints": ["关键点1", "关键点2", "关键点3"],\n  "details": [\n    { "heading": "子主题标题", "content": "子主题的详细说明" }\n  ],\n  "keywords": ["关键词1", "关键词2", "关键词3", "关键词4", "关键词5"],\n  "studyTips": "有效学习本讲座内容的提示（1-2句）"\n}`,
+    ko: `당신은 최고 수준의 학술 노트 전문 AI입니다. 강의 녹취록을 분석하여 시험 공부와 복습에 최적화된 고밀도 요약 노트를 아래 JSON 형식으로만 작성하세요.\n강의 분야: ${label}\n\n1. 학술적이고 명확한 어조를 유지할 것\n2. 장황한 문장을 배제하고, 효율적인 구조화된 데이터를 제공할 것\n\n반드시 아래 JSON 형식만 출력하세요. 다른 텍스트는 절대 포함하지 마세요:\n{\n  "suggestedName": "강의 제목 (20자 이내)",\n  "overview": "이 강의의 핵심 목적과 주요 내용을 2~3문장으로 명확히 요약",\n  "keyPoints": ["핵심 개념 1", "핵심 원리 2", "주요 결론 3"],\n  "details": [\n    { "heading": "소주제/개념 이름", "content": "해당 개념의 학술적 정의, 중요성, 작동 원리를 상세하게 설명" }\n  ],\n  "keywords": ["핵심전문용어1", "핵심전문용어2", "핵심전문용어3", "핵심전문용어4", "핵심전문용어5"],\n  "studyTips": "이 강의에서 시험/실무를 위해 집중적으로 복습해야 할 주요 함정이나 포인트를 1~2문장으로 제안"\n}`,
+    en: `You are an expert academic note-taking AI. Analyze the given lecture transcript and construct high-density, exam-optimized study notes in the following JSON format.\nLecture Field: ${label}\n\n1. Maintain a clear, academic tone.\n2. Avoid verbose sentences; provide efficient, structured data.\n\nOutput ONLY the JSON format below. Do not include any other text:\n{\n  "suggestedName": "Lecture Title (max 20 characters)",\n  "overview": "Clear summary of the lecture's core purpose and main content in 2-3 sentences",\n  "keyPoints": ["Core concept 1", "Core principle 2", "Main conclusion 3"],\n  "details": [\n    { "heading": "Subtopic/Concept Name", "content": "Detailed explanation of academic definition, significance, and mechanics" }\n  ],\n  "keywords": ["coreTerm1", "coreTerm2", "coreTerm3", "coreTerm4", "coreTerm5"],\n  "studyTips": "1-2 sentences suggesting key exam focuses, common pitfalls, or core takeaways for review"\n}`,
+    zh: `您是顶级的学术笔记AI。分析讲座录音稿，并构建优化用于备考的高密度学习笔记，仅使用以下JSON格式。\n讲座领域：${label}\n\n1. 保持清晰且学术的语调。\n2. 避免冗长的句子；提供高效的结构化数据。\n\n仅输出以下JSON格式。不包括任何其他文本：\n{\n  "suggestedName": "讲座标题（最多20个字符）",\n  "overview": "清楚地总结讲座的核心目的和主要内容（2-3句）",\n  "keyPoints": ["核心概念1", "核心原理2", "主要结论3"],\n  "details": [\n    { "heading": "子主题/概念名称", "content": "详细说明学术定义、重要性和机制" }\n  ],\n  "keywords": ["核心术语1", "核心术语2", "核心术语3", "核心术语4", "核心术语5"],\n  "studyTips": "1-2句话，建议考试重点、常见陷阱或复习的核心要点"\n}`,
   };
 
   const basePrompt = basePrompts[language] || basePrompts.ko;
@@ -134,51 +134,51 @@ function buildSystemPrompt(lectureType: LectureType, language: SummaryLanguage =
   // Category-specific additional instructions (in the selected language)
   const categoryExtras: Partial<Record<LectureType, Partial<Record<SummaryLanguage, string>>>> = {
     math: {
-      ko: `\n수학 강의이므로 다음에 특히 주의하세요:\n- keyPoints에 핵심 공식, 정리, 증명 단계를 포함하세요\n- details에 풀이 방법론과 예제 유형을 포함하세요\n- keywords에 수학 용어와 기호를 포함하세요`,
-      en: `\nSince this is a mathematics lecture, pay special attention to:\n- Include key formulas, theorems, and proof steps in keyPoints\n- Include solution methodologies and example types in details\n- Include mathematical terms and symbols in keywords`,
-      zh: `\n由于这是数学讲座，请特别注意：\n- 在keyPoints中包括关键公式、定理和证明步骤\n- 在details中包括求解方法和例题类型\n- 在keywords中包括数学术语和符号`,
+      ko: `\n수학/논리학 강의이므로 다음 규칙을 엄격히 따르세요:\n- keyPoints: 핵심 공식, 정리(Theorem), 연산자 우선순위 및 기본 정의를 추출하세요.\n- details: 증명 흐름, 공식의 유도 과정, 그리고 시험에 자주 나오는 실수(Common Mistakes)를 명확히 설명하세요.\n- keywords: 수학적 기호와 공식 명칭을 포함하세요.`,
+      en: `\nSince this is a math/logic lecture, strictly follow these rules:\n- keyPoints: Extract core formulas, theorems, operator precedence, and basic definitions.\n- details: Clearly explain the proof flow, derivation of formulas, and common exam mistakes.\n- keywords: Include mathematical symbols and formula names.`,
+      zh: `\n由于这是数学/逻辑讲座，请严格遵循以下规则：\n- keyPoints：提取核心公式，定理，运算符优先级和基本定义。\n- details：清楚地解释证明流程，公式推导以及常见的考试错误。\n- keywords：包括数学符号和公式名称。`,
     },
 
     science: {
-      ko: `\n과학 강의이므로 다음에 특히 주의하세요:\n- keyPoints에 핵심 개념, 법칙, 실험 결과를 포함하세요\n- details에 실험 방법과 과학적 원리를 포함하세요\n- keywords에 과학 용어와 단위를 포함하세요`,
-      en: `\nSince this is a science lecture, pay special attention to:\n- Include key concepts, laws, and experimental results in keyPoints\n- Include experimental methods and scientific principles in details\n- Include scientific terms and units in keywords`,
-      zh: `\n由于这是科学讲座，请特别注意：\n- 在keyPoints中包括关键概念、定律和实验结果\n- 在details中包括实验方法和科学原理\n- 在keywords中包括科学术语和单位`,
+      ko: `\n과학 강의이므로 다음 규칙을 엄격히 따르세요:\n- keyPoints: 핵심 과학 법칙, 현상, 임상적 발견이나 실험 결과를 추출하세요.\n- details: 실험 방법, 가설 검증 과정, 원인과 결과(인과관계), 원리를 심층적으로 분석하세요.\n- keywords: 핵심 과학 용어와 측정 단위(Units)를 포함하세요.`,
+      en: `\nSince this is a science lecture, strictly follow these rules:\n- keyPoints: Extract key scientific laws, phenomena, and experimental results.\n- details: In-depth analysis of experimental methods, hypothesis testing, causal relationships, and mechanisms.\n- keywords: Include core scientific terms and measurement units.`,
+      zh: `\n由于这是科学讲座，请严格遵循以下规则：\n- keyPoints：提取关键的科学定律，现象和实验结果。\n- details：深入分析实验方法，假设检验，因果关系和机制。\n- keywords：包括核心科学术语和测量单位。`,
     },
 
     coding: {
-      ko: `\n프로그래밍 강의이므로 다음에 특히 주의하세요:\n- keyPoints에 핵심 알고리즘, 자료구조, 패턴을 포함하세요\n- details에 코드 로직과 구현 방법을 포함하세요\n- keywords에 프로그래밍 용어, 함수명, 라이브러리를 포함하세요`,
-      en: `\nSince this is a programming lecture, pay special attention to:\n- Include key algorithms, data structures, and patterns in keyPoints\n- Include code logic and implementation methods in details\n- Include programming terms, function names, and libraries in keywords`,
-      zh: `\n由于这是编程讲座，请特别注意：\n- 在keyPoints中包括关键算法、数据结构和模式\n- 在details中包括代码逻辑和实现方法\n- 在keywords中包括编程术语、函数名和库`,
+      ko: `\n컴퓨터 과학/프로그래밍 강의이므로 다음 규칙을 엄격히 따르세요:\n- keyPoints: 아키텍처, 알고리즘 원리, 자료구조 개념을 추출하세요.\n- details: 특정 함수나 API 이름, 구현 시 주의사항, 디버깅 팁 및 예외 처리(Edge Cases)를 상세히 설명하세요.\n- keywords: 프로그래밍 용어, 라이브러리, 프레임워크 명칭을 포함하세요.`,
+      en: `\nSince this is a CS/programming lecture, strictly follow these rules:\n- keyPoints: Extract architecture, algorithm mechanics, and data structure concepts.\n- details: Detail specific function/API names, implementation cautions, debugging tips, and edge cases.\n- keywords: Include programming terms, libraries, and framework names.`,
+      zh: `\n由于这是CS/编程讲座，请严格遵循以下规则：\n- keyPoints：提取架构，算法原理和数据结构概念。\n- details：详细说明特定的函数/API名称，实施注意事项，调试技巧和边缘情况。\n- keywords：包括编程术语，库和框架名称。`,
     },
 
     humanities: {
-      ko: `\n인문학 강의이므로 다음에 특히 주의하세요:\n- keyPoints에 핵심 사상, 논증, 철학적 개념을 포함하세요\n- details에 주요 논점과 사례를 포함하세요\n- keywords에 철학/인문학 용어와 사상가 이름을 포함하세요`,
-      en: `\nSince this is a humanities lecture, pay special attention to:\n- Include key ideas, arguments, and philosophical concepts in keyPoints\n- Include main arguments and examples in details\n- Include humanities/philosophy terms and philosopher names in keywords`,
-      zh: `\n由于这是人文学讲座，请特别注意：\n- 在keyPoints中包括关键思想、论证和哲学概念\n- 在details中包括主要论点和例子\n- 在keywords中包括人文学/哲学术语和思想家名字`,
+      ko: `\n인문학 강의이므로 다음 규칙을 엄격히 따르세요:\n- keyPoints: 학자의 중심 주장, 핵심 정의, 그리고 개념적 구분(Distinctions)을 명확히 하세요.\n- details: 주장을 뒷받침하는 추론 흐름, 철학적 해석 사례, 답안 작성에 활용하기 좋은 논리 구조를 설명하세요.\n- keywords: 철학/인문학 전문 조어 및 학자 이름을 포함하세요.`,
+      en: `\nSince this is a humanities lecture, strictly follow these rules:\n- keyPoints: Clarify the scholar's core claims, definitions, and conceptual distinctions.\n- details: Explain the reasoning flow supporting the claims, interpretive examples, and logical structures useful for exam framing.\n- keywords: Include specialized philosophical/humanities terms and scholar names.`,
+      zh: `\n由于这是人文学讲座，请严格遵循以下规则：\n- keyPoints：阐明学者的核心主张，定义和概念区分。\n- details：解释支持主张的推理流，解释性示例和有助于构建考试答案的逻辑结构。\n- keywords：包括专门的哲学/人文术语和学者姓名。`,
     },
 
     history: {
-      ko: `\n역사 강의이므로 다음에 특히 주의하세요:\n- keyPoints에 핵심 사건, 연도, 인물을 포함하세요\n- details에 역사적 배경과 인과관계를 포함하세요\n- keywords에 역사적 사건명, 인물명, 시대명을 포함하세요`,
-      en: `\nSince this is a history lecture, pay special attention to:\n- Include key events, dates, and figures in keyPoints\n- Include historical context and causal relationships in details\n- Include historical event names, figure names, and era names in keywords`,
-      zh: `\n由于这是历史讲座，请特别注意：\n- 在keyPoints中包括关键事件、日期和人物\n- 在details中包括历史背景和因果关系\n- 在keywords中包括历史事件名、人物名和时代名`,
+      ko: `\n역사 강의이므로 다음 규칙을 엄격히 따르세요:\n- keyPoints: 핵심 사건의 연대기적 가치, 전개 방향, 중심 인물의 영향을 정리하세요.\n- details: 역사적 배경, 인과관계(원인과 결과), 후대에 미친 영향, 체계적인 시대 구분을 서술하세요.\n- keywords: 시대명, 역사적 사건명, 지명, 조약 및 인물을 포함하세요.`,
+      en: `\nSince this is a history lecture, strictly follow these rules:\n- keyPoints: Organize chronological events, developmental shifts, and impacts of key figures.\n- details: Describe the historical background, cause-and-effect relationships, lasting impacts, and periodization.\n- keywords: Include era names, historical events, locations, treaties, and figures.`,
+      zh: `\n由于这是历史讲座，请严格遵循以下规则：\n- keyPoints：组织按时间顺序发生的事件，发展转变以及关键人物的影响。\n- details：描述历史背景，因果关系，深远影响和分期。\n- keywords：包括时代名称，历史事件，地点，条约和人物。`,
     },
 
     economics: {
-      ko: `\n경제/경영 강의이므로 다음에 특히 주의하세요:\n- keyPoints에 핵심 이론, 모델, 경제 지표를 포함하세요\n- details에 경제 원리와 실제 사례를 포함하세요\n- keywords에 경제/경영 용어와 지표를 포함하세요`,
-      en: `\nSince this is an economics/business lecture, pay special attention to:\n- Include key theories, models, and economic indicators in keyPoints\n- Include economic principles and real-world examples in details\n- Include economics/business terms and indicators in keywords`,
-      zh: `\n由于这是经济学/商业讲座，请特别注意：\n- 在keyPoints中包括关键理论、模型和经济指标\n- 在details中包括经济原理和现实例子\n- 在keywords中包括经济学/商业术语和指标`,
+      ko: `\n경제/경영 강의이므로 다음 규칙을 엄격히 따르세요:\n- keyPoints: 거시/미시 모델, 경제 주요 이론, 핵심 재무/경제 지표를 정리하세요.\n- details: 경제 원리의 작동 방식, 시장 변화 사례 분석, 이론의 한계점과 적용 조건을 분석하세요.\n- keywords: 경제/경영 지표, 수식 용어, 기관명 등을 포함하세요.`,
+      en: `\nSince this is an economics/business lecture, strictly follow these rules:\n- keyPoints: Summarize macro/micro models, major economic theories, and core financial/economic indicators.\n- details: Analyze how economic principles operate, market shift examples, and the limitations/application conditions of theories.\n- keywords: Include economic/business indicators, formula terms, and institution names.`,
+      zh: `\n由于这是经济学/商业讲座，请严格遵循以下规则：\n- keyPoints：总结宏观/微观模型，主要经济理论和核心财务/经济指标。\n- details：分析经济原理如何运作，市场变化示例，以及理论的局限性/应用条件。\n- keywords：包括经济/业务指标，公式术语和机构名称。`,
     },
 
     law: {
-      ko: `\n법학 강의이므로 다음에 특히 주의하세요:\n- keyPoints에 핵심 법 조항, 판례, 법적 원칙을 포함하세요\n- details에 법적 요건과 적용 사례를 포함하세요\n- keywords에 법학 용어와 법 조항을 포함하세요`,
-      en: `\nSince this is a law lecture, pay special attention to:\n- Include key legal provisions, precedents, and legal principles in keyPoints\n- Include legal requirements and application cases in details\n- Include legal terms and legal provisions in keywords`,
-      zh: `\n由于这是法律讲座，请特别注意：\n- 在keyPoints中包括关键法律条款、判例和法律原则\n- 在details中包括法律要求和适用案例\n- 在keywords中包括法律术语和法律条款`,
+      ko: `\n법학/정책학 강의이므로 다음 규칙을 엄격히 따르세요:\n- keyPoints: 조문의 취지, 핵심 법리, 판례의 요지를 명확히 추출하세요.\n- details: 성립 요건, 예외 규정, 학설의 대립, 그리고 논술형 답안에 적합한 법적 판단 흐름을 상세히 작성하세요.\n- keywords: 주요 법률 용어, 조항 번호, 판례 번호를 포함하세요.`,
+      en: `\nSince this is a law/policy lecture, strictly follow these rules:\n- keyPoints: Extract the legislative intent, core legal doctrines, and the gist of precedents.\n- details: Detail the establishment requirements, exception clauses, conflicting theories, and legal judgment flows suitable for essay answers.\n- keywords: Include major legal terms, provision numbers, and precedent citations.`,
+      zh: `\n由于这是法律/政策讲座，请严格遵循以下规则：\n- keyPoints：提取立法意图，核心法律学说和判例要旨。\n- details：详细说明成立要求，例外条款，冲突理论以及适合论述题答案的法律判断流程。\n- keywords：包括主要法律术语，条款号和判例引用。`,
     },
 
     medicine: {
-      ko: `\n의학/생명과학 강의이므로 다음에 특히 주의하세요:\n- keyPoints에 핵심 의학 개념, 병리, 치료법을 포함하세요\n- details에 해부학적 구조와 생리학적 원리를 포함하세요\n- keywords에 의학 용어와 약물명을 포함하세요`,
-      en: `\nSince this is a medicine/life sciences lecture, pay special attention to:\n- Include key medical concepts, pathologies, and treatments in keyPoints\n- Include anatomical structures and physiological principles in details\n- Include medical terms and drug names in keywords`,
-      zh: `\n由于这是医学/生命科学讲座，请特别注意：\n- 在keyPoints中包括关键医学概念、病理和治疗方法\n- 在details中包括解剖结构和生理学原理\n- 在keywords中包括医学术语和药物名称`,
+      ko: `\n의학/약학 강의이므로 다음 규칙을 엄격히 따르세요:\n- keyPoints: 주요 질환, 해부학적 구조, 병태생리 기전 및 진단 기준을 우선적으로 정리하세요.\n- details: 임상적 특징, 치료 방법(약물 기전), 부작용 및 금기사항을 체계적으로 기술하세요.\n- keywords: 정확한 의학 표준 용어, 약물 기호 표시를 포함하세요.`,
+      en: `\nSince this is a medicine/pharmacy lecture, strictly follow these rules:\n- keyPoints: Prioritize major diseases, anatomical structures, pathophysiological mechanisms, and diagnostic criteria.\n- details: Systematically describe clinical features, treatment methods (drug mechanisms), side effects, and contraindications.\n- keywords: Include precise standard medical terminology and drug symbols.`,
+      zh: `\n由于这是医学/药学讲座，请严格遵循以下规则：\n- keyPoints：优先考虑主要疾病，解剖结构，病理生理机制和诊断标准。\n- details：系统描述临床特征，治疗方法（药物机制），副作用和禁忌症。\n- keywords：包括精确的标准医学术语和药物符号。`,
     },
   };
 
