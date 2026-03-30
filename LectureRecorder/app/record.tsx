@@ -88,6 +88,32 @@ interface TranscriptChunk {
   isPending: boolean;     // true while being transcribed
 }
 
+function buildCleanTranscript(chunks: TranscriptChunk[]): string {
+  const textsToMerge = chunks
+    .filter(c => !c.isPending && c.text && c.text !== '[인식 실패]')
+    .map(c => c.text);
+  
+  if (textsToMerge.length === 0) return '';
+  
+  let fullTranscript = textsToMerge[0];
+  for (let i = 1; i < textsToMerge.length; i++) {
+    const currentStr = textsToMerge[i];
+    let overlapFound = false;
+    const maxOverlap = Math.min(50, fullTranscript.length, currentStr.length);
+    for (let o = maxOverlap; o > 0; o--) {
+      if (fullTranscript.endsWith(currentStr.substring(0, o))) {
+        fullTranscript += currentStr.substring(o);
+        overlapFound = true;
+        break;
+      }
+    }
+    if (!overlapFound) {
+      fullTranscript += '\n\n' + currentStr;
+    }
+  }
+  return fullTranscript;
+}
+
 interface QueuedChunk {
   chunkId: string;
   chunkIndex: number;
@@ -293,10 +319,7 @@ export default function RecordScreen() {
             setTranscriptChunks([...transcriptChunksRef.current]);
 
             if (activeRecordingIdRef.current) {
-              const fullTranscript = transcriptChunksRef.current
-                .filter(c => !c.isPending && c.text)
-                .map(c => c.text)
-                .join('\n\n');
+              const fullTranscript = buildCleanTranscript(transcriptChunksRef.current);
               updateRecording(activeRecordingIdRef.current, { transcript: fullTranscript });
               triggerAIUpdate();
             }
@@ -311,7 +334,7 @@ export default function RecordScreen() {
             };
             transcriptChunksRef.current = upsertChunk(transcriptChunksRef.current, failedChunk);
             setTranscriptChunks([...transcriptChunksRef.current]);
-            console.error('[Transcription] chunk failed permanently');
+            console.warn('[Transcription] chunk failed permanently');
           } else {
             // Empty text — remove pending placeholder
             transcriptChunksRef.current = transcriptChunksRef.current.filter(
@@ -462,7 +485,7 @@ export default function RecordScreen() {
         }
       }
     } catch (err) {
-      console.error(`[cycleChunk] ❌ Failed to cycle chunk #${chunkIndex}:`, err);
+      console.warn(`[cycleChunk] ❌ Failed to cycle chunk #${chunkIndex}:`, err);
     } finally {
       isRolloverInProgressRef.current = false;
     }
@@ -561,7 +584,7 @@ export default function RecordScreen() {
       console.log('[Recording] Startup complete');
       scheduleNextRollover();
     } catch (err) {
-      console.error('[Recording] Startup failed:', err);
+      console.warn('[Recording] Startup failed:', err);
       try {
         await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
       } catch (_) {}
@@ -655,10 +678,7 @@ export default function RecordScreen() {
       console.log('[stopRecording] running final AI pass...');
       await triggerAIUpdate(true);
 
-      const fullString = transcriptChunksRef.current
-        .filter(c => !c.isPending && c.text && c.text !== '[인식 실패]')
-        .map(c => c.text)
-        .join('\n\n');
+      const fullString = buildCleanTranscript(transcriptChunksRef.current);
       const rootUri = chunkUrisRef.current[0] || stableUri || '';
       console.log(`[stopRecording] final transcript length: ${fullString.length} chars | rootUri: ${rootUri}`);
 
