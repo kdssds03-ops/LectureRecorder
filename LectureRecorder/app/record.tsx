@@ -124,6 +124,23 @@ export default function RecordScreen() {
   const [isAIUpdating, setIsAIUpdating] = useState(false);
   const [isStartingRecording, setIsStartingRecording] = useState(false);
 
+  const isRolloverInProgressRef = useRef(false);
+  const rolloverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearRolloverTimer = () => {
+    if (rolloverTimeoutRef.current) {
+      clearTimeout(rolloverTimeoutRef.current);
+      rolloverTimeoutRef.current = null;
+    }
+  };
+
+  const scheduleNextRollover = () => {
+    clearRolloverTimer();
+    rolloverTimeoutRef.current = setTimeout(() => {
+      cycleChunk();
+    }, 30000);
+  };
+
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -163,6 +180,7 @@ export default function RecordScreen() {
   useEffect(() => {
     return () => {
       console.log('[RecordScreen] Unmounting, performing emergency cleanup...');
+      clearRolloverTimer();
       if (isRecordingRef.current) {
         console.log('[RecordScreen] Stopping active recording during unmount');
         recordingRef.current?.stopAndUnloadAsync().catch(err =>
@@ -359,9 +377,15 @@ export default function RecordScreen() {
   // ── 30-second chunk cycling ───────────────────────────────────────────────
   const cycleChunk = async () => {
     // Do not cycle if we are in the stop or pre-stop flow
-    if (!isRecordingRef.current || isStoppingRef.current) return;
+    if (!isRecordingRef.current || isStoppingRef.current || isRolloverInProgressRef.current) return;
+    isRolloverInProgressRef.current = true;
+    clearRolloverTimer();
+
     const currentRec = recordingRef.current;
-    if (!currentRec) return;
+    if (!currentRec) {
+      isRolloverInProgressRef.current = false;
+      return;
+    }
 
     const chunkIndex = chunkCounterRef.current;
     const startSec = chunkIndex * 30;
@@ -406,6 +430,7 @@ export default function RecordScreen() {
         recordingRef.current = newRec;
         setRecording(newRec);
         console.log(`[cycleChunk] ✅ new recording started for chunk #${chunkCounterRef.current}`);
+        scheduleNextRollover();
       } else {
         console.log(`[cycleChunk] stop detected after persist — not starting new recording for chunk #${chunkCounterRef.current}`);
       }
@@ -417,18 +442,10 @@ export default function RecordScreen() {
       }
     } catch (err) {
       console.error(`[cycleChunk] ❌ Failed to cycle chunk #${chunkIndex}:`, err);
+    } finally {
+      isRolloverInProgressRef.current = false;
     }
   };
-
-  useEffect(() => {
-    let transInterval: ReturnType<typeof setInterval>;
-    if (isRecording) {
-      transInterval = setInterval(() => {
-        cycleChunk();
-      }, 30000);
-    }
-    return () => clearInterval(transInterval);
-  }, [isRecording]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const formatTime = (ms: number) => {
@@ -520,6 +537,7 @@ export default function RecordScreen() {
       setTranscriptChunks([]);
       transcriptChunksRef.current = [];
       console.log('[Recording] Startup complete');
+      scheduleNextRollover();
     } catch (err) {
       console.error('[Recording] Startup failed:', err);
       try {
@@ -539,6 +557,7 @@ export default function RecordScreen() {
     isRecordingRef.current = false;
     isStoppingRef.current = true;
     setIsRecording(false);
+    clearRolloverTimer();
     console.log(`[stopRecording] ▶ triggered | session duration: ${Math.round(durationRef.current / 1000)}s | chunks accumulated: ${chunkCounterRef.current}`);
 
     const currentRec = recordingRef.current;
@@ -644,6 +663,7 @@ export default function RecordScreen() {
             onPress: async () => {
               isRecordingRef.current = false;
               setIsRecording(false);
+              clearRolloverTimer();
               const idToDelete = activeRecordingIdRef.current;
               activeRecordingIdRef.current = null;
 
