@@ -152,7 +152,6 @@ export default function RecordScreen() {
   const processedOrQueuedChunksRef = useRef<Set<number>>(new Set());
   const isProcessorRunningRef = useRef(false);
   const isAIProcessingRef = useRef(false);
-  const lastAITranscriptLengthRef = useRef(0);
   const chunkCounterRef = useRef(0);
 
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -321,7 +320,6 @@ export default function RecordScreen() {
             if (activeRecordingIdRef.current) {
               const fullTranscript = buildCleanTranscript(transcriptChunksRef.current);
               updateRecording(activeRecordingIdRef.current, { transcript: fullTranscript });
-              triggerAIUpdate();
             }
           } else if (!success) {
             // Remove pending chunk on permanent failure
@@ -363,29 +361,24 @@ export default function RecordScreen() {
     return [...chunks, newChunk].sort((a, b) => a.index - b.index);
   }
 
-  // ── AI update (throttled) ─────────────────────────────────────────────────
-  const triggerAIUpdate = async (force = false) => {
-    const currentTranscript = transcriptChunksRef.current
-      .filter(c => !c.isPending && c.text && c.text !== '[인식 실패]')
-      .map(c => c.text)
-      .join('\n\n');
-    const currentLength = currentTranscript.trim().length;
-
-    if (!force && (isAIProcessingRef.current || currentLength - lastAITranscriptLengthRef.current < 500)) {
-      return;
-    }
+  // ── Final AI post-processing ──────────────────────────────────────────────
+  const generateFinalAIContent = async () => {
+    if (isAIProcessingRef.current) return;
 
     const recordingId = activeRecordingIdRef.current;
-    if (!recordingId || !currentTranscript.trim()) return;
+    if (!recordingId) return;
 
-    console.log(`[AI Update] starting for transcript length: ${currentLength}`);
+    const fullTranscript = buildCleanTranscript(transcriptChunksRef.current);
+    if (!fullTranscript.trim()) return;
+
+    console.log(`[Final AI Update] starting for transcript length: ${fullTranscript.length}`);
     isAIProcessingRef.current = true;
     setIsAIUpdating(true);
 
     try {
       const [sumRes, transRes] = await Promise.all([
-        summarizeText(currentTranscript, selectedLectureType),
-        translateText(currentTranscript, translationLanguage)
+        summarizeText(fullTranscript, selectedLectureType),
+        translateText(fullTranscript, translationLanguage)
       ]);
 
       const updates: any = {
@@ -399,10 +392,9 @@ export default function RecordScreen() {
       }
 
       updateRecording(recordingId, updates);
-      lastAITranscriptLengthRef.current = currentLength;
-      console.log(`[AI Update] success`);
+      console.log(`[Final AI Update] success`);
     } catch (err) {
-      console.warn(`[AI Update] failed:`, err);
+      console.warn(`[Final AI Update] failed gracefully, transcript preserved:`, err);
     } finally {
       isAIProcessingRef.current = false;
       setIsAIUpdating(false);
@@ -675,9 +667,6 @@ export default function RecordScreen() {
       setIsTranscribing(false);
       console.log('[stopRecording] transcription queue drained');
 
-      console.log('[stopRecording] running final AI pass...');
-      await triggerAIUpdate(true);
-
       const fullString = buildCleanTranscript(transcriptChunksRef.current);
       const rootUri = chunkUrisRef.current[0] || stableUri || '';
       console.log(`[stopRecording] final transcript length: ${fullString.length} chars | rootUri: ${rootUri}`);
@@ -689,6 +678,10 @@ export default function RecordScreen() {
           duration: durationRef.current,
           transcript: fullString,
         });
+
+        console.log('[stopRecording] running final AI pass...');
+        await generateFinalAIContent();
+
         console.log(`[stopRecording] ✅ recording saved | id=${activeRecordingIdRef.current} | chunks=${chunkUrisRef.current.length} | transcript=${fullString.length} chars`);
         activeRecordingIdRef.current = null;
         isStoppingRef.current = false;
