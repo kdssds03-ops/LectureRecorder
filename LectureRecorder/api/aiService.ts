@@ -134,6 +134,16 @@ function classifyNetworkError(err: any, context: string): Error {
   if (err?.response?.status) {
     const status: number = err.response.status;
     const body = JSON.stringify(err.response.data ?? {});
+    
+    // Graceful handling for silent audio chunks
+    const isNoSpeech = body.includes('no spoken audio') || body.includes('language_detection cannot be performed');
+    if (isNoSpeech) {
+      console.log(`[${context}] Silent chunk detected (no spoken audio)`);
+      const noSpeechErr = new Error(`[${context}] 오디오에 음성이 감지되지 않았습니다.`);
+      (noSpeechErr as any).isNoSpeech = true;
+      return noSpeechErr;
+    }
+
     console.error(`[${context}] HTTP ${status} response body: ${body}`);
     if (status === 413) return new Error(`[${context}] 파일이 너무 큽니다 (413 Payload Too Large).`);
     if (status === 401 || status === 403) return new Error(`[${context}] 인증 실패 (${status}). 앱 시크릿 키를 확인해 주세요.`);
@@ -347,6 +357,12 @@ export async function quickTranscribe(audioUri: string): Promise<string> {
     return text;
   } catch (err: any) {
     const classified = classifyNetworkError(err, 'quickTranscribe');
+    
+    if ((classified as any).isNoSpeech) {
+      console.log(`[quickTranscribe] skipping silent chunk safely after ${elapsed()}`);
+      return ''; // Gracefully exit without failure
+    }
+
     // Warn (not error) — chunk failures are non-fatal and will be retried by the queue.
     console.warn(`[quickTranscribe] failed after ${elapsed()}: ${classified.message}`);
     if (err?.response?.data) {
