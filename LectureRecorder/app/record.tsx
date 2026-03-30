@@ -88,6 +88,14 @@ interface TranscriptChunk {
   isPending: boolean;     // true while being transcribed
 }
 
+interface QueuedChunk {
+  chunkId: string;
+  chunkIndex: number;
+  uri: string;
+  startSec: number;
+  createdAt: number;
+}
+
 export default function RecordScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
@@ -114,7 +122,8 @@ export default function RecordScreen() {
   const [transcriptChunks, setTranscriptChunks] = useState<TranscriptChunk[]>([]);
   const transcriptChunksRef = useRef<TranscriptChunk[]>([]);
   const chunkUrisRef = useRef<string[]>([]);
-  const chunkQueueRef = useRef<{ uri: string; chunkIndex: number; startSec: number }[]>([]);
+  const chunkQueueRef = useRef<QueuedChunk[]>([]);
+  const processedOrQueuedChunksRef = useRef<Set<number>>(new Set());
   const isProcessorRunningRef = useRef(false);
   const isAIProcessingRef = useRef(false);
   const lastAITranscriptLengthRef = useRef(0);
@@ -238,78 +247,81 @@ export default function RecordScreen() {
     try {
       while (chunkQueueRef.current.length > 0) {
         setIsTranscribing(true);
-        const item = chunkQueueRef.current[0];
+        // Shift safely at the start so a sync throw doesn't stall the loop
+        const item = chunkQueueRef.current.shift()!;
         const { uri: uriToProcess, chunkIndex, startSec } = item;
 
-        // Mark chunk as pending in UI immediately
-        const endSec = startSec + 30;
-        const pendingChunk: TranscriptChunk = {
-          index: chunkIndex,
-          startSec,
-          endSec,
-          text: '',
-          isPending: true,
-        };
-        transcriptChunksRef.current = upsertChunk(transcriptChunksRef.current, pendingChunk);
-        setTranscriptChunks([...transcriptChunksRef.current]);
+        try {
+          // Mark chunk as pending in UI immediately
+          const endSec = startSec + 30;
+          const pendingChunk: TranscriptChunk = {
+            index: chunkIndex,
+            startSec,
+            endSec,
+            text: '',
+            isPending: true,
+          };
+          transcriptChunksRef.current = upsertChunk(transcriptChunksRef.current, pendingChunk);
+          setTranscriptChunks([...transcriptChunksRef.current]);
 
-        let success = false;
-        let text = '';
-        let retries = 0;
+          let success = false;
+          let text = '';
+          let retries = 0;
 
-        while (!success && retries < 3) {
-          try {
-            text = await quickTranscribe(uriToProcess);
-            success = true;
-          } catch (err) {
-            retries++;
-            console.warn(`[Transcription] chunk failed, retry ${retries}/3`, err);
-            if (retries < 3) {
-              await new Promise(resolve => setTimeout(resolve, 2000));
+          while (!success && retries < 3) {
+            try {
+              text = await quickTranscribe(uriToProcess);
+              success = true;
+            } catch (err) {
+              retries++;
+              console.warn(`[Transcription] chunk failed, retry ${retries}/3`, err);
+              if (retries < 3) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+              }
             }
           }
-        }
 
-        if (success && text && text.trim()) {
-          const completedChunk: TranscriptChunk = {
-            index: chunkIndex,
-            startSec,
-            endSec,
-            text: text.trim(),
-            isPending: false,
-          };
-          transcriptChunksRef.current = upsertChunk(transcriptChunksRef.current, completedChunk);
-          setTranscriptChunks([...transcriptChunksRef.current]);
+          if (success && text && text.trim()) {
+            const completedChunk: TranscriptChunk = {
+              index: chunkIndex,
+              startSec,
+              endSec,
+              text: text.trim(),
+              isPending: false,
+            };
+            transcriptChunksRef.current = upsertChunk(transcriptChunksRef.current, completedChunk);
+            setTranscriptChunks([...transcriptChunksRef.current]);
 
-          if (activeRecordingIdRef.current) {
-            const fullTranscript = transcriptChunksRef.current
-              .filter(c => !c.isPending && c.text)
-              .map(c => c.text)
-              .join('\n\n');
-            updateRecording(activeRecordingIdRef.current, { transcript: fullTranscript });
-            triggerAIUpdate();
+            if (activeRecordingIdRef.current) {
+              const fullTranscript = transcriptChunksRef.current
+                .filter(c => !c.isPending && c.text)
+                .map(c => c.text)
+                .join('\n\n');
+              updateRecording(activeRecordingIdRef.current, { transcript: fullTranscript });
+              triggerAIUpdate();
+            }
+          } else if (!success) {
+            // Remove pending chunk on permanent failure
+            const failedChunk: TranscriptChunk = {
+              index: chunkIndex,
+              startSec,
+              endSec,
+              text: '[인식 실패]',
+              isPending: false,
+            };
+            transcriptChunksRef.current = upsertChunk(transcriptChunksRef.current, failedChunk);
+            setTranscriptChunks([...transcriptChunksRef.current]);
+            console.error('[Transcription] chunk failed permanently');
+          } else {
+            // Empty text — remove pending placeholder
+            transcriptChunksRef.current = transcriptChunksRef.current.filter(
+              c => c.index !== chunkIndex
+            );
+            setTranscriptChunks([...transcriptChunksRef.current]);
           }
-        } else if (!success) {
-          // Remove pending chunk on permanent failure
-          const failedChunk: TranscriptChunk = {
-            index: chunkIndex,
-            startSec,
-            endSec,
-            text: '[인식 실패]',
-            isPending: false,
-          };
-          transcriptChunksRef.current = upsertChunk(transcriptChunksRef.current, failedChunk);
-          setTranscriptChunks([...transcriptChunksRef.current]);
-          console.error('[Transcription] chunk failed permanently');
-        } else {
-          // Empty text — remove pending placeholder
-          transcriptChunksRef.current = transcriptChunksRef.current.filter(
-            c => c.index !== chunkIndex
-          );
-          setTranscriptChunks([...transcriptChunksRef.current]);
+        } catch (fatalErr) {
+          console.error(`[Transcription] Fatal error processing chunk #${chunkIndex}:`, fatalErr);
         }
-
-        chunkQueueRef.current.shift();
       }
     } finally {
       setIsTranscribing(false);
@@ -436,9 +448,18 @@ export default function RecordScreen() {
       }
 
       if (stableUri) {
-        console.log(`[cycleChunk] queuing chunk #${chunkIndex} for transcription | URI: ${stableUri}`);
-        chunkQueueRef.current.push({ uri: stableUri, chunkIndex, startSec });
-        processTranscriptionQueue();
+        if (!processedOrQueuedChunksRef.current.has(chunkIndex)) {
+            processedOrQueuedChunksRef.current.add(chunkIndex);
+            console.log(`[cycleChunk] queuing chunk #${chunkIndex} for transcription | URI: ${stableUri}`);
+            chunkQueueRef.current.push({ 
+                chunkId: `chunk_${Date.now()}_${chunkIndex}`,
+                uri: stableUri, 
+                chunkIndex, 
+                startSec,
+                createdAt: Date.now()
+            });
+            processTranscriptionQueue();
+        }
       }
     } catch (err) {
       console.error(`[cycleChunk] ❌ Failed to cycle chunk #${chunkIndex}:`, err);
@@ -536,6 +557,7 @@ export default function RecordScreen() {
       durationRef.current = 0;
       setTranscriptChunks([]);
       transcriptChunksRef.current = [];
+      processedOrQueuedChunksRef.current.clear();
       console.log('[Recording] Startup complete');
       scheduleNextRollover();
     } catch (err) {
@@ -607,8 +629,17 @@ export default function RecordScreen() {
         const startSec = chunkIndex * 30;
         chunkCounterRef.current += 1;
         console.log(`[stopRecording] ▶ triggering transcription for final chunk #${chunkIndex} | URI: ${stableUri}`);
-        chunkQueueRef.current.push({ uri: stableUri, chunkIndex, startSec });
-        processTranscriptionQueue();
+        if (!processedOrQueuedChunksRef.current.has(chunkIndex)) {
+            processedOrQueuedChunksRef.current.add(chunkIndex);
+            chunkQueueRef.current.push({ 
+                chunkId: `chunk_${Date.now()}_${chunkIndex}`,
+                uri: stableUri, 
+                chunkIndex, 
+                startSec,
+                createdAt: Date.now()
+            });
+            processTranscriptionQueue();
+        }
       } else {
         console.warn('[stopRecording] no valid final URI — skipping transcription of final chunk');
       }
@@ -664,6 +695,7 @@ export default function RecordScreen() {
               isRecordingRef.current = false;
               setIsRecording(false);
               clearRolloverTimer();
+              processedOrQueuedChunksRef.current.clear();
               const idToDelete = activeRecordingIdRef.current;
               activeRecordingIdRef.current = null;
 
