@@ -16,6 +16,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useRecordingStore, RecordingMeta, LectureType, LECTURE_TYPE_LABELS, LECTURE_TYPE_ICONS } from '@/store/useRecordingStore';
 import { quickTranscribe, summarizeText, translateText } from '@/api/aiService';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -38,6 +39,44 @@ const LECTURE_TYPE_LIST: LectureType[] = [
   'art',
   'other',
 ];
+
+// ── Audio file persistence helpers ────────────────────────────────────────────
+
+/**
+ * Copies a temp/cache audio URI to a stable permanent path in documentDirectory.
+ * Returns the new permanent URI, or the original URI if the copy fails.
+ */
+async function persistAudioFile(tempUri: string, suffix: string): Promise<string> {
+  try {
+    const dest = `${FileSystem.documentDirectory}recording_${suffix}.m4a`;
+    await FileSystem.copyAsync({ from: tempUri, to: dest });
+    console.log(`[persistAudio] copied ${tempUri} → ${dest}`);
+    return dest;
+  } catch (err) {
+    console.warn(`[persistAudio] copy failed for ${tempUri}:`, err);
+    return tempUri; // fall back to original — better than losing the recording
+  }
+}
+
+/**
+ * Validates that a file exists at the given URI and has a non-zero size.
+ * Returns { ok: boolean, size: number }.
+ */
+async function validateAudioFile(uri: string): Promise<{ ok: boolean; size: number }> {
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    const size = (info as any).size ?? 0;
+    if (!info.exists || size === 0) {
+      console.error(`[validateAudio] INVALID: exists=${info.exists} size=${size} uri=${uri}`);
+      return { ok: false, size };
+    }
+    console.log(`[validateAudio] OK: size=${size} bytes | uri=${uri}`);
+    return { ok: true, size };
+  } catch (err) {
+    console.error(`[validateAudio] getInfoAsync failed for ${uri}:`, err);
+    return { ok: false, size: 0 };
+  }
+}
 
 interface TranscriptChunk {
   index: number;          // 0-based chunk index
@@ -289,8 +328,21 @@ export default function RecordScreen() {
 
     try {
       await currentRec.stopAndUnloadAsync();
-      const oldUri = currentRec.getURI();
-      if (oldUri) chunkUrisRef.current.push(oldUri);
+      const rawUri = currentRec.getURI();
+      console.log(`[cycleChunk] chunk #${chunkIndex} | raw URI: ${rawUri}`);
+
+      let stableUri: string | null = null;
+      if (rawUri) {
+        // Copy to stable path before queuing to avoid OS cleaning the cache
+        stableUri = await persistAudioFile(rawUri, `chunk_${Date.now()}_${chunkIndex}`);
+        const validation = await validateAudioFile(stableUri);
+        if (!validation.ok) {
+          console.warn(`[cycleChunk] chunk #${chunkIndex} invalid after persist, skipping`);
+          stableUri = null;
+        } else {
+          chunkUrisRef.current.push(stableUri);
+        }
+      }
 
       if (isRecordingRef.current) {
         const { recording: newRec } = await Audio.Recording.createAsync(
@@ -300,12 +352,13 @@ export default function RecordScreen() {
         setRecording(newRec);
       }
 
-      if (oldUri) {
-        chunkQueueRef.current.push({ uri: oldUri, chunkIndex, startSec });
+      if (stableUri) {
+        console.log(`[cycleChunk] queuing chunk #${chunkIndex} for transcription | URI: ${stableUri}`);
+        chunkQueueRef.current.push({ uri: stableUri, chunkIndex, startSec });
         processTranscriptionQueue();
       }
     } catch (err) {
-      console.error('Failed to cycle chunk', err);
+      console.error('[cycleChunk] Failed to cycle chunk', err);
     }
   };
 
@@ -423,57 +476,80 @@ export default function RecordScreen() {
   // ── Stop recording ────────────────────────────────────────────────────────
   const stopRecording = async () => {
     if (!isRecording) return;
-    console.log('[Recording] Attempting to stop recording...');
 
     isRecordingRef.current = false;
     setIsRecording(false);
 
     const currentRec = recordingRef.current;
     if (!currentRec) {
-      console.warn('[Recording] No active recording ref found during stop');
+      console.warn('[stopRecording] No active recording ref found during stop');
       return;
     }
 
     try {
-      console.log('[Recording] Stopping and unloading recording...');
+      console.log('[stopRecording] ■ stopping and unloading recording...');
       await currentRec.stopAndUnloadAsync();
+      console.log('[stopRecording] stopAndUnloadAsync done');
 
-      console.log('[Recording] Resetting audio mode...');
+      console.log('[stopRecording] resetting audio mode...');
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
       });
 
-      const finalUri = currentRec.getURI();
-      if (finalUri) {
-        console.log('[Recording] Final URI captured:', finalUri);
-        chunkUrisRef.current.push(finalUri);
+      const rawUri = currentRec.getURI();
+      console.log(`[stopRecording] original URI from getURI(): ${rawUri}`);
+
+      let stableUri: string | null = null;
+      if (rawUri) {
+        // Copy to a stable permanent location before doing anything else.
+        // The OS can clean cache/ at any time; documentDirectory is safe.
+        stableUri = await persistAudioFile(rawUri, `final_${Date.now()}`);
+        console.log(`[stopRecording] persisted URI: ${stableUri}`);
+
+        // Validate the persisted file before transcription
+        const validation = await validateAudioFile(stableUri);
+        console.log(`[stopRecording] file validation: ok=${validation.ok} size=${validation.size}`);
+
+        if (!validation.ok) {
+          console.error('[stopRecording] persisted file is invalid (0 bytes or missing) — aborting transcription');
+          stableUri = null;
+        } else {
+          chunkUrisRef.current.push(stableUri);
+        }
+      } else {
+        console.warn('[stopRecording] getURI() returned null/empty');
       }
 
       // Transcribe final piece
-      if (finalUri) {
+      if (stableUri) {
         const chunkIndex = chunkCounterRef.current;
         const startSec = chunkIndex * 30;
         chunkCounterRef.current += 1;
-        chunkQueueRef.current.push({ uri: finalUri, chunkIndex, startSec });
+        console.log(`[stopRecording] ▶ triggering transcription for final chunk #${chunkIndex} | URI: ${stableUri}`);
+        chunkQueueRef.current.push({ uri: stableUri, chunkIndex, startSec });
         processTranscriptionQueue();
+      } else {
+        console.warn('[stopRecording] no valid final URI — skipping transcription of final chunk');
       }
 
       setIsTranscribing(true);
-      console.log('[Recording] Waiting for transcription queue to drain...');
+      console.log('[stopRecording] waiting for transcription queue to drain...');
       while (chunkQueueRef.current.length > 0 || isProcessorRunningRef.current) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
       setIsTranscribing(false);
+      console.log('[stopRecording] transcription queue drained');
 
-      console.log('[Recording] Running final AI pass...');
+      console.log('[stopRecording] running final AI pass...');
       await triggerAIUpdate(true);
 
       const fullString = transcriptChunksRef.current
         .filter(c => !c.isPending && c.text && c.text !== '[인식 실패]')
         .map(c => c.text)
         .join('\n\n');
-      const rootUri = chunkUrisRef.current[0] || finalUri || '';
+      const rootUri = chunkUrisRef.current[0] || stableUri || '';
+      console.log(`[stopRecording] final transcript length: ${fullString.length} chars | rootUri: ${rootUri}`);
 
       if (activeRecordingIdRef.current) {
         updateRecording(activeRecordingIdRef.current, {
@@ -486,7 +562,7 @@ export default function RecordScreen() {
         router.replace(`/(tabs)`);
       }
     } catch (err) {
-      console.error('Failed to stop recording', err);
+      console.error('[stopRecording] failed:', err);
     }
   };
 

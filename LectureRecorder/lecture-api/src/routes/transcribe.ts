@@ -1,8 +1,9 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import axios from 'axios';
 import fs from 'fs';
 import os from 'os';
+import path from 'path';
 import { config } from '../config';
 
 const router = Router();
@@ -28,6 +29,53 @@ const upload = multer({
   },
 });
 
+// ── Multer error handling middleware ───────────────────────────────────────────
+// Wraps multer's single-file upload so that multer-specific errors (payload too
+// large, unexpected field, etc.) return clean JSON instead of falling through to
+// Express's generic error handler.
+function uploadSingle(fieldName: string) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const mw = upload.single(fieldName);
+    mw(req, res, (err: any) => {
+      if (!err) return next();
+
+      if (err instanceof multer.MulterError) {
+        console.warn(`[transcribe] multer error: code=${err.code} field=${err.field} message=${err.message}`);
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          res.status(413).json({
+            error: '파일이 너무 큽니다. 500 MB 이하의 오디오 파일을 사용해 주세요.',
+            phase: 'upload_validation',
+            code: 'LIMIT_FILE_SIZE',
+          });
+          return;
+        }
+        if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+          res.status(400).json({
+            error: '잘못된 필드 이름입니다. "audio" 필드에 파일을 첨부해 주세요.',
+            phase: 'upload_validation',
+            code: 'LIMIT_UNEXPECTED_FILE',
+          });
+          return;
+        }
+        res.status(400).json({
+          error: `업로드 오류: ${err.message}`,
+          phase: 'upload_validation',
+          code: err.code,
+        });
+        return;
+      }
+
+      // Non-multer error (e.g. invalid multipart boundary)
+      console.error('[transcribe] multipart parse error:', err.message ?? err);
+      res.status(400).json({
+        error: '잘못된 multipart 요청입니다.',
+        phase: 'upload_validation',
+        detail: err.message ?? String(err),
+      });
+    });
+  };
+}
+
 /** Safely delete a temp file. Logs a warning on unexpected failure, never throws. */
 function cleanupTempFile(filePath: string | undefined): void {
   if (!filePath) return;
@@ -41,6 +89,21 @@ function cleanupTempFile(filePath: string | undefined): void {
 }
 
 /**
+ * Calculates a reasonable upload timeout based on file size.
+ * - Base: 60 s (enough for small files / slow cold-start).
+ * - Linear: +60 s per 50 MB (≈ 833 KB/s worst-case upload speed).
+ * - Cap: 10 minutes — Railway's own proxy timeout may be shorter,
+ *   but we let Express be generous and allow Railway to enforce its limit.
+ */
+function uploadTimeoutMs(fileSizeBytes: number): number {
+  const BASE_MS  = 60_000;
+  const PER_50MB = 60_000;
+  const MAX_MS   = 600_000; // 10 min
+  const extra = Math.ceil(fileSizeBytes / (50 * 1024 * 1024)) * PER_50MB;
+  return Math.min(BASE_MS + extra, MAX_MS);
+}
+
+/**
  * POST /api/transcribe
  * Receives audio from the app, streams it to AssemblyAI, returns a jobId.
  *
@@ -48,7 +111,7 @@ function cleanupTempFile(filePath: string | undefined): void {
  * Query: diarize=true (optional)
  * Response: { jobId: string }
  */
-router.post('/', upload.single('audio'), async (req: Request, res: Response) => {
+router.post('/', uploadSingle('audio'), async (req: Request, res: Response) => {
   const t0 = Date.now();
   const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
 
@@ -56,7 +119,10 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
 
   if (!req.file) {
     console.warn(`[transcribe] POST / — rejected: no audio file in request body`);
-    res.status(400).json({ error: 'No audio file provided. Use field name "audio".' });
+    res.status(400).json({
+      error: 'No audio file provided. Use field name "audio".',
+      phase: 'upload_validation',
+    });
     return;
   }
 
@@ -66,10 +132,27 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
     `size=${size} bytes (${(size / 1024 / 1024).toFixed(2)} MB), tmpPath=${tmpPath}`
   );
 
+  // Verify the temp file actually exists and has content
+  try {
+    const stat = fs.statSync(tmpPath);
+    console.log(`[transcribe] temp file verified — disk size=${stat.size} bytes`);
+  } catch (statErr: any) {
+    console.error(`[transcribe] temp file stat FAILED — ${statErr.message}`);
+    res.status(500).json({
+      error: '서버에 파일 저장에 실패했습니다.',
+      phase: 'temp_file_verification',
+    });
+    return;
+  }
+
   const diarize = req.query.diarize === 'true';
+  const timeout = uploadTimeoutMs(size);
 
   // Step 1: Stream temp file → AssemblyAI upload endpoint
-  console.log(`[transcribe] AssemblyAI upload starting — diarize=${diarize}, elapsed=${elapsed()}`);
+  console.log(
+    `[transcribe] AssemblyAI upload starting — diarize=${diarize}, ` +
+    `timeout=${(timeout / 1000).toFixed(0)}s, elapsed=${elapsed()}`
+  );
 
   let audioUrl: string;
   try {
@@ -85,7 +168,7 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
         },
         maxContentLength: Infinity,
         maxBodyLength: Infinity,
-        timeout: 120_000, // 2 min — generous for large files; Railway proxy has its own 30s limit
+        timeout,
       }
     );
     audioUrl = uploadRes.data.upload_url;
@@ -93,11 +176,23 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
   } catch (uploadErr: any) {
     const status = uploadErr.response?.status;
     const detail = uploadErr.response?.data ?? uploadErr.message;
+    const code   = uploadErr.code ?? '';
     console.error(
-      `[transcribe] AssemblyAI upload FAILED — elapsed=${elapsed()}, HTTP ${status ?? 'n/a'}:`,
-      detail
+      `[transcribe] AssemblyAI upload FAILED — elapsed=${elapsed()}, ` +
+      `HTTP ${status ?? 'n/a'}, code=${code}:`,
+      typeof detail === 'object' ? JSON.stringify(detail) : detail
     );
     cleanupTempFile(tmpPath);
+
+    // Distinguish timeout from other failures
+    if (code === 'ECONNABORTED' || (uploadErr.message ?? '').toLowerCase().includes('timeout')) {
+      res.status(504).json({
+        error: 'AssemblyAI 업로드 시간이 초과되었습니다. 파일이 매우 클 수 있습니다.',
+        phase: 'assemblyai_upload',
+        code: 'UPLOAD_TIMEOUT',
+      });
+      return;
+    }
     res.status(502).json({
       error: 'AssemblyAI 업로드에 실패했습니다.',
       phase: 'assemblyai_upload',
@@ -106,6 +201,9 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
     });
     return;
   }
+
+  // Temp file is no longer needed — AssemblyAI has it now.
+  cleanupTempFile(tmpPath);
 
   // Step 2: Submit transcription job
   console.log(`[transcribe] submitting transcription job — elapsed=${elapsed()}`);
@@ -133,12 +231,10 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
   } catch (jobErr: any) {
     const status = jobErr.response?.status;
     const detail = jobErr.response?.data ?? jobErr.message;
-    // Serialize the full upstream response body so the rejection reason is always visible in logs.
     const detailStr = typeof detail === 'object' ? JSON.stringify(detail) : String(detail);
     console.error(
       `[transcribe] AssemblyAI job create FAILED — elapsed=${elapsed()}, HTTP ${status ?? 'n/a'}: ${detailStr}`
     );
-    cleanupTempFile(tmpPath);
     res.status(502).json({
       error: '음성 인식 작업 생성에 실패했습니다.',
       phase: 'assemblyai_job_create',
@@ -148,32 +244,42 @@ router.post('/', upload.single('audio'), async (req: Request, res: Response) => 
     return;
   }
 
-  cleanupTempFile(tmpPath);
+  console.log(`[transcribe] POST / complete — elapsed=${elapsed()}, jobId=${jobId}`);
   res.json({ jobId });
 });
 
 /**
  * POST /api/transcribe/quick
  * Quick transcription for real-time updates (30s chunks).
- * Returns the text directly after polling. Timeout extended to 45s.
+ * Returns the text directly after polling.
+ *
+ * Polling: 90 attempts × 1 s = 90 s max. This covers worst-case queue delays
+ * on AssemblyAI for short chunks.
  */
-router.post('/quick', upload.single('audio'), async (req: Request, res: Response) => {
+router.post('/quick', uploadSingle('audio'), async (req: Request, res: Response) => {
+  const t0 = Date.now();
+  const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
+
   console.log(`[transcribe/quick] POST /quick — incoming`);
 
   if (!req.file) {
     console.warn(`[transcribe/quick] rejected: no audio file`);
-    res.status(400).json({ error: 'No audio file provided.' });
+    res.status(400).json({
+      error: 'No audio file provided.',
+      phase: 'upload_validation',
+    });
     return;
   }
 
   const { originalname, mimetype, size, path: tmpPath } = req.file;
   console.log(
     `[transcribe/quick] file — name=${originalname}, mime=${mimetype}, ` +
-    `size=${size} bytes, tmpPath=${tmpPath}`
+    `size=${size} bytes (${(size / 1024 / 1024).toFixed(2)} MB), tmpPath=${tmpPath}`
   );
 
   try {
     // Upload via stream
+    console.log(`[transcribe/quick] uploading to AssemblyAI...`);
     const fileStream = fs.createReadStream(tmpPath);
     const uploadRes = await axios.post(
       'https://api.assemblyai.com/v2/upload',
@@ -184,55 +290,71 @@ router.post('/quick', upload.single('audio'), async (req: Request, res: Response
           'Content-Type': 'application/octet-stream',
           'Transfer-Encoding': 'chunked',
         },
-        timeout: 30_000,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+        timeout: 60_000, // 60 s — generous for a ≤30 s chunk
       }
     );
     const audioUrl = uploadRes.data.upload_url;
-    console.log(`[transcribe/quick] AssemblyAI upload done — upload_url=${audioUrl}`);
+    console.log(`[transcribe/quick] upload done — elapsed=${elapsed()}, upload_url=${audioUrl}`);
     cleanupTempFile(tmpPath);
 
-    // Submit with nano model for speed
+    // Submit with fast model
+    console.log(`[transcribe/quick] creating transcription job...`);
     const transcriptRes = await axios.post(
       'https://api.assemblyai.com/v2/transcript',
       {
         audio_url: audioUrl,
-        // `speech_model` (singular string) is deprecated — use `speech_models` string array.
         speech_models: ['universal-2'],
         language_code: 'ko',
       },
       {
         headers: { authorization: config.assemblyAiKey },
-        timeout: 10_000,
+        timeout: 15_000,
       }
     );
     const jobId = transcriptRes.data.id;
-    console.log(`[transcribe/quick] job created — jobId=${jobId}`);
+    console.log(`[transcribe/quick] job created — elapsed=${elapsed()}, jobId=${jobId}`);
 
-    // Fast poll — 45 attempts × 1s = 45s max
-    for (let i = 0; i < 45; i++) {
+    // Poll — 90 attempts × 1 s = 90 s max (up from 45 s)
+    const QUICK_POLL_MAX = 90;
+    for (let i = 0; i < QUICK_POLL_MAX; i++) {
       await new Promise(resolve => setTimeout(resolve, 1000));
-      const pollRes = await axios.get(
-        `https://api.assemblyai.com/v2/transcript/${jobId}`,
-        { headers: { authorization: config.assemblyAiKey }, timeout: 10_000 }
-      );
-      if (pollRes.data.status === 'completed') {
-        console.log(`[transcribe/quick] completed on poll #${i + 1}`);
-        res.json({ text: pollRes.data.text ?? '' });
-        return;
-      } else if (pollRes.data.status === 'error') {
-        console.error('[transcribe/quick] AssemblyAI error:', pollRes.data.error);
-        res.json({ text: '' });
-        return;
+
+      try {
+        const pollRes = await axios.get(
+          `https://api.assemblyai.com/v2/transcript/${jobId}`,
+          { headers: { authorization: config.assemblyAiKey }, timeout: 10_000 }
+        );
+        if (pollRes.data.status === 'completed') {
+          console.log(`[transcribe/quick] completed on poll #${i + 1} — total ${elapsed()}`);
+          res.json({ text: pollRes.data.text ?? '' });
+          return;
+        }
+        if (pollRes.data.status === 'error') {
+          console.error(`[transcribe/quick] AssemblyAI error on poll #${i + 1}: ${pollRes.data.error}`);
+          res.json({ text: '' });
+          return;
+        }
+      } catch (pollErr: any) {
+        // Transient poll failure — log and retry rather than aborting
+        console.warn(
+          `[transcribe/quick] poll #${i + 1} transient error: ` +
+          `${pollErr.response?.status ?? pollErr.code ?? pollErr.message} — retrying`
+        );
+        continue;
       }
     }
 
-    console.warn('[transcribe/quick] polling timed out after 45s — returning empty text');
+    console.warn(`[transcribe/quick] polling timed out after ${QUICK_POLL_MAX}s (${elapsed()}) — returning empty text`);
     res.json({ text: '' });
   } catch (err: any) {
+    const status = err.response?.status;
     const detail = err.response?.data ?? err.message;
-    console.error('[transcribe/quick] unhandled error:', detail);
-    cleanupTempFile(req.file?.path);
-    // Silent fail — real-time flow must not crash on a single chunk failure
+    const detailStr = typeof detail === 'object' ? JSON.stringify(detail) : String(detail);
+    console.error(`[transcribe/quick] unhandled error — elapsed=${elapsed()}, HTTP ${status ?? 'n/a'}: ${detailStr}`);
+    cleanupTempFile(tmpPath);
+    // Return empty text with 200 so real-time flow degrades gracefully
     res.status(200).json({ text: '' });
   }
 });
@@ -278,6 +400,7 @@ router.get('/:jobId', async (req: Request, res: Response) => {
     console.error(`[transcribe] GET /:jobId error — jobId=${jobId}, HTTP ${status ?? 'n/a'}:`, detail);
     res.status(500).json({
       error: '음성 인식 결과 조회에 실패했습니다.',
+      phase: 'poll',
       detail: typeof detail === 'object' ? JSON.stringify(detail) : String(detail),
     });
   }

@@ -119,7 +119,61 @@ const ACCEPT_ALL = { validateStatus: () => true } as const;
 const POLL_INITIAL_DELAY_MS = 1_000;
 // Subsequent interval between polls after the first attempt.
 const POLL_INTERVAL_MS = 2_000;
-const POLL_MAX_ATTEMPTS = 180; // 6-minute maximum wait at 2s intervals
+// 1500 attempts × 2 s = 50 min max — covers 60-min lecture recordings
+// (AssemblyAI typically uses ~15% of audio duration for transcription).
+const POLL_MAX_ATTEMPTS = 1_500;
+
+// ── Error classification ──────────────────────────────────────────────────────
+
+/**
+ * Maps low-level axios/fetch errors into human-readable, actionable messages.
+ * Call this any time a network operation fails instead of bubbling raw `err`.
+ */
+function classifyNetworkError(err: any, context: string): Error {
+  // Already a classified error from assertStatus — preserve it.
+  if (err?.response?.status) {
+    const status: number = err.response.status;
+    const body = JSON.stringify(err.response.data ?? {});
+    console.error(`[${context}] HTTP ${status} response body: ${body}`);
+    if (status === 413) return new Error(`[${context}] 파일이 너무 큽니다 (413 Payload Too Large).`);
+    if (status === 401 || status === 403) return new Error(`[${context}] 인증 실패 (${status}). 앱 시크릿 키를 확인해 주세요.`);
+    if (status === 404) return new Error(`[${context}] 엔드포인트를 찾을 수 없습니다 (404).`);
+    if (status === 422) return new Error(`[${context}] 잘못된 요청 형식 (422): ${body}`);
+    if (status >= 500) return new Error(`[${context}] 서버 오류 (${status}). 잠시 후 다시 시도해 주세요.`);
+    return new Error(`[${context}] 요청 실패 (HTTP ${status}): ${body}`);
+  }
+
+  const msg: string = err?.message ?? String(err);
+  const code: string = err?.code ?? '';
+  console.error(`[${context}] 네트워크 오류: code=${code} message=${msg}`);
+
+  if (code === 'ECONNABORTED' || msg.toLowerCase().includes('timeout')) {
+    return new Error(`[${context}] 요청 시간이 초과되었습니다. 네트워크 상태를 확인해 주세요.`);
+  }
+  if (code === 'ERR_NETWORK' || msg === 'Network Error') {
+    return new Error(`[${context}] 네트워크에 연결할 수 없습니다. 인터넷 연결을 확인하거나 백엔드 서버 상태를 확인해 주세요.`);
+  }
+  if (code === 'ENOTFOUND' || code === 'ECONNREFUSED') {
+    return new Error(`[${context}] 백엔드 서버에 연결할 수 없습니다 (${code}). URL을 확인해 주세요.`);
+  }
+  return new Error(`[${context}] ${msg}`);
+}
+
+/**
+ * Validates the resolved backend URL before use.
+ * Throws a clear error (not a confusing "Network Error") if the URL is empty or malformed.
+ */
+function assertBackendUrl(url: string, context: string): void {
+  if (!url) {
+    console.error(`[${context}] Backend URL is empty! Check EXPO_PUBLIC_BACKEND_URL in .env`);
+    throw new Error(`[${context}] 백엔드 URL이 설정되지 않았습니다. .env 파일의 EXPO_PUBLIC_BACKEND_URL을 확인해 주세요.`);
+  }
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    console.error(`[${context}] Backend URL is invalid: '${url}'`);
+    throw new Error(`[${context}] 백엔드 URL이 올바르지 않습니다: '${url}'`);
+  }
+  console.log(`[${context}] Backend URL validated: ${url}`);
+}
 
 // ── Exported API functions ────────────────────────────────────────────────────
 // These keep the exact same signatures as before so detail/[id].tsx is unchanged.
@@ -138,23 +192,22 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
   const t0 = Date.now();
   const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
 
-  console.log(`[Diagnostic] transcribeAudio started`);
-  console.log(`[Diagnostic] EXPO_PUBLIC_BACKEND_URL (raw env): ${process.env.EXPO_PUBLIC_BACKEND_URL}`);
+  console.log(`[transcribeAudio] ▶ started at ${new Date().toISOString()}`);
+  console.log(`[transcribeAudio] EXPO_PUBLIC_BACKEND_URL (raw env): ${process.env.EXPO_PUBLIC_BACKEND_URL}`);
 
   const baseUrl = await getBackendUrl();
-  console.log(`[Diagnostic] resolved baseUrl: ${baseUrl}`);
+  assertBackendUrl(baseUrl, 'transcribeAudio'); // throws clear error if blank/malformed
 
-  const finalUrl = `${baseUrl}/api/transcribe/`;
-  console.log(`[Diagnostic] final POST URL: ${finalUrl}`);
-  console.log(`[Diagnostic] audio URI: ${audioUri}`);
+  const uploadUrl = `${baseUrl}/api/transcribe/`;
+  console.log(`[transcribeAudio] POST endpoint: ${uploadUrl}`);
+  console.log(`[transcribeAudio] local file URI: ${audioUri}`);
 
   const secret = await getAppSecret();
-
   if (!secret) {
     throw new Error('앱 시크릿 키가 설정되지 않았습니다. 설정 탭에서 입력해 주세요.');
   }
 
-  // Step 1: Upload audio as multipart/form-data to our backend
+  // ── Step 1: Upload audio as multipart/form-data ──────────────────────────────
   const formData = new FormData();
   formData.append('audio', {
     uri: audioUri,
@@ -162,50 +215,64 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
     name: 'audio.m4a',
   } as unknown as Blob);
 
-  console.log(`[transcribe] upload started at ${new Date().toISOString()}`);
-  console.log(`[transcribe] audio file — uri=${audioUri}, name=audio.m4a, type=audio/m4a`);
+  console.log(`[transcribeAudio] upload start | uri=${audioUri} | ${new Date().toISOString()}`);
   let uploadRes;
   try {
     uploadRes = await axios.post(
-      finalUrl,
+      uploadUrl,
       formData,
       {
         headers: {
           'x-app-key': secret,
           'Content-Type': 'multipart/form-data',
         },
-        timeout: 120_000,
+        // 5 min upload timeout — large files on slow connections need headroom
+        timeout: 300_000,
         ...ACCEPT_ALL,
       }
     );
-    assertStatus(uploadRes); // throws with populated error.response on 4xx/5xx
+    assertStatus(uploadRes);
   } catch (err: any) {
-    console.log(`[Diagnostic] upload failed at ${new Date().toISOString()} | elapsed: ${elapsed()} | error: ${err.message}`);
-    throw err;
+    const classified = classifyNetworkError(err, 'transcribeAudio/upload');
+    console.error(`[transcribeAudio] upload FAILED at ${elapsed()}: ${classified.message}`);
+    throw classified;
   }
 
   const jobId: string = uploadRes.data?.jobId;
-  if (!jobId) throw new Error('음성 인식 작업 ID를 받지 못했습니다.');
-  console.log(`[transcribe] upload done at ${new Date().toISOString()} ${elapsed()} → jobId ${jobId}`);
+  if (!jobId) throw new Error('[transcribeAudio] 음성 인식 작업 ID를 받지 못했습니다. 서버 응답: ' + JSON.stringify(uploadRes.data));
+  console.log(`[transcribeAudio] upload done at ${elapsed()} → jobId: ${jobId}`);
 
-  // Step 2: Poll our backend.
-  // Sleep BEFORE the first poll (not after) so we never wait a full interval
-  // past the moment the result becomes available.
-  // Short initial delay (1s) because short recordings finish quickly.
+  // ── Step 2: Poll until done ──────────────────────────────────────────────────
+  // Poll at 2 s intervals for up to 50 min (1 500 attempts).
+  // This is sufficient for an AssemblyAI transcription of a 60-min lecture
+  // (AssemblyAI targets ~15 % of audio duration).
   const headers = await buildHeaders();
   let delay = POLL_INITIAL_DELAY_MS;
 
+  console.log(`[transcribeAudio] polling start | max ${POLL_MAX_ATTEMPTS} attempts × ${POLL_INTERVAL_MS}ms`);
+
   for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
     await new Promise<void>((resolve) => setTimeout(resolve, delay));
-    // Switch to the standard interval after the first attempt
     delay = POLL_INTERVAL_MS;
 
-    console.log(`[transcribe] poll #${attempt + 1} ${elapsed()}`);
-    const pollRes = await axios.get(
-      `${baseUrl}/api/transcribe/${jobId}`,
-      { headers, timeout: 15_000, ...ACCEPT_ALL }
-    );
-    assertStatus(pollRes);
+    // Log every 30 attempts (~1 min) to keep logs readable for long recordings
+    if (attempt % 30 === 0) {
+      console.log(`[transcribeAudio] poll #${attempt + 1} | ${elapsed()}`);
+    }
+
+    let pollRes;
+    try {
+      pollRes = await axios.get(
+        `${baseUrl}/api/transcribe/${jobId}`,
+        { headers, timeout: 20_000, ...ACCEPT_ALL }
+      );
+      assertStatus(pollRes);
+    } catch (err: any) {
+      const classified = classifyNetworkError(err, `transcribeAudio/poll#${attempt + 1}`);
+      // Transient poll errors: warn and retry rather than aborting the whole job
+      console.warn(`[transcribeAudio] poll #${attempt + 1} transient error: ${classified.message} — retrying`);
+      continue;
+    }
 
     const { status, transcript, error } = pollRes.data as {
       status: 'processing' | 'completed' | 'error';
@@ -214,14 +281,18 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
     };
 
     if (status === 'completed' && transcript) {
-      console.log(`[transcribe] done — total ${elapsed()}`);
+      console.log(`[transcribeAudio] ✅ completed — total ${elapsed()}`);
       return transcript;
     }
-    if (status === 'error') throw new Error('음성 인식 실패: ' + (error ?? '알 수 없는 오류'));
-    // status === 'processing' → loop
+    if (status === 'error') {
+      console.error(`[transcribeAudio] job error after ${elapsed()}: ${error}`);
+      throw new Error('음성 인식 실패: ' + (error ?? '알 수 없는 오류'));
+    }
+    // status === 'processing' → continue
   }
 
-  throw new Error('음성 인식 시간이 초과되었습니다. 더 짧은 녹음을 시도해 주세요.');
+  console.error(`[transcribeAudio] polling timeout after ${elapsed()} (${POLL_MAX_ATTEMPTS} attempts)`);
+  throw new Error(`음성 인식 시간이 초과되었습니다 (${elapsed()}). 녹음이 너무 길거나 서버가 응답하지 않습니다.`);
 }
 
 /**
@@ -230,12 +301,24 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
  * Polling timeout extended to 45s for reliability.
  */
 export async function quickTranscribe(audioUri: string): Promise<string> {
-  const baseUrl = await getBackendUrl();
-  const secret = await getAppSecret();
+  const t0 = Date.now();
+  const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
 
-  if (!secret) {
-    throw new Error('앱 시크릿 키가 설정되지 않았습니다.');
+  const baseUrl = await getBackendUrl();
+  try {
+    assertBackendUrl(baseUrl, 'quickTranscribe');
+  } catch (urlErr: any) {
+    console.error(`[quickTranscribe] invalid backend URL, skipping chunk: ${urlErr.message}`);
+    return '';
   }
+
+  const secret = await getAppSecret();
+  if (!secret) {
+    console.error('[quickTranscribe] no app secret — skipping chunk');
+    return '';
+  }
+
+  console.log(`[quickTranscribe] ▶ uri=${audioUri} | endpoint=${baseUrl}/api/transcribe/quick`);
 
   const formData = new FormData();
   formData.append('audio', {
@@ -253,15 +336,23 @@ export async function quickTranscribe(audioUri: string): Promise<string> {
           'x-app-key': secret,
           'Content-Type': 'multipart/form-data',
         },
-        timeout: 60_000, // Extended to 60s for reliability
+        // 90 s — chunk transcriptions go through AssemblyAI; allow extra headroom
+        timeout: 90_000,
         ...ACCEPT_ALL,
       }
     );
     assertStatus(res);
-    return res.data.text ?? '';
+    const text = res.data.text ?? '';
+    console.log(`[quickTranscribe] ✅ done in ${elapsed()} | chars=${text.length}`);
+    return text;
   } catch (err: any) {
-    console.log(`[quickTranscribe] failed: ${err.message}`);
-    return ''; // Silent fail for real-time updates
+    const classified = classifyNetworkError(err, 'quickTranscribe');
+    // Warn (not error) — chunk failures are non-fatal and will be retried by the queue.
+    console.warn(`[quickTranscribe] failed after ${elapsed()}: ${classified.message}`);
+    if (err?.response?.data) {
+      console.warn(`[quickTranscribe] server response body: ${JSON.stringify(err.response.data)}`);
+    }
+    return ''; // Non-fatal: real-time chunk failures degrade gracefully
   }
 }
 

@@ -190,8 +190,25 @@ app.use((_req, res) => {
 });
 
 // ── Error handler ─────────────────────────────────────────────────────────────
+// Belt-and-suspenders: catch multer errors that escape the per-route wrapper,
+// plus any other unhandled errors from async route handlers.
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('[server] Unhandled error:', err);
+  // Multer-specific errors (e.g. from a route that forgot to use uploadSingle wrapper)
+  const multer = require('multer');
+  if (err instanceof multer.MulterError) {
+    console.warn(`[server] MulterError: code=${err.code} message=${err.message}`);
+    const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    res.status(status).json({
+      error: err.code === 'LIMIT_FILE_SIZE'
+        ? '파일이 너무 큽니다.'
+        : `업로드 오류: ${err.message}`,
+      code: err.code,
+    });
+    return;
+  }
+
+  console.error('[server] Unhandled error:', err?.message ?? err);
+  if (err?.stack) console.error('[server] Stack:', err.stack);
   res.status(500).json({ error: '서버 오류가 발생했습니다.' });
 });
 
