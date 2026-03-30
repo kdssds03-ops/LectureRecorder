@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
+  AppState,
+  AppStateStatus,
   StyleSheet,
   Text,
   View,
@@ -103,6 +105,8 @@ export default function RecordScreen() {
   const activeRecordingIdRef = useRef<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const isRecordingRef = useRef(false);
+  // Guard: set to true during stopRecording to prevent cycleChunk from starting a new recording
+  const isStoppingRef = useRef(false);
   const [duration, setDuration] = useState(0);
   const durationRef = useRef(0);
 
@@ -170,6 +174,42 @@ export default function RecordScreen() {
         playsInSilentModeIOS: true,
       }).catch(err => console.warn('[RecordScreen] Unmount mode reset failed:', err));
     };
+  }, []);
+
+  // ── AppState listener: detect interruptions and background transitions ────
+  useEffect(() => {
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      if (!isRecordingRef.current) return;
+
+      if (nextState === 'background' || nextState === 'inactive') {
+        // iOS: if UIBackgroundModes audio is correctly set, recording continues.
+        // Log this so we can verify on-device. If recording stops here, it means
+        // UIBackgroundModes is still not applied (requires a native rebuild).
+        console.log(`[AppState] ⚠️ App moved to background/inactive while recording — state: ${nextState}`);
+        console.log('[AppState] Recording should continue if UIBackgroundModes:audio is active in the native build.');
+      } else if (nextState === 'active') {
+        console.log('[AppState] ✅ App returned to active — verifying recording object is still alive...');
+        const rec = recordingRef.current;
+        if (rec) {
+          // getStatusAsync() is the lightest way to probe whether the native recorder is still active
+          rec.getStatusAsync()
+            .then((status) => {
+              console.log(`[AppState] Recording status after resume: isRecording=${status.isRecording} durationMs=${status.durationMillis}`);
+              if (!status.isRecording) {
+                console.error('[AppState] ❌ Recording object is NOT active after app resume — session may have been interrupted!');
+              }
+            })
+            .catch((err) => {
+              console.error('[AppState] getStatusAsync failed after resume:', err);
+            });
+        } else {
+          console.error('[AppState] ❌ recordingRef is null after app resume — recording was lost!');
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription.remove();
   }, []);
 
   // ── Transcription queue processor ────────────────────────────────────────
@@ -318,7 +358,8 @@ export default function RecordScreen() {
 
   // ── 30-second chunk cycling ───────────────────────────────────────────────
   const cycleChunk = async () => {
-    if (!isRecordingRef.current) return;
+    // Do not cycle if we are in the stop or pre-stop flow
+    if (!isRecordingRef.current || isStoppingRef.current) return;
     const currentRec = recordingRef.current;
     if (!currentRec) return;
 
@@ -326,10 +367,12 @@ export default function RecordScreen() {
     const startSec = chunkIndex * 30;
     chunkCounterRef.current += 1;
 
+    console.log(`[cycleChunk] ▶ starting rollover for chunk #${chunkIndex} | elapsed ${Math.round(durationRef.current / 1000)}s`);
+
     try {
       await currentRec.stopAndUnloadAsync();
       const rawUri = currentRec.getURI();
-      console.log(`[cycleChunk] chunk #${chunkIndex} | raw URI: ${rawUri}`);
+      console.log(`[cycleChunk] chunk #${chunkIndex} stopped | raw URI: ${rawUri}`);
 
       let stableUri: string | null = null;
       if (rawUri) {
@@ -337,19 +380,34 @@ export default function RecordScreen() {
         stableUri = await persistAudioFile(rawUri, `chunk_${Date.now()}_${chunkIndex}`);
         const validation = await validateAudioFile(stableUri);
         if (!validation.ok) {
-          console.warn(`[cycleChunk] chunk #${chunkIndex} invalid after persist, skipping`);
+          console.warn(`[cycleChunk] chunk #${chunkIndex} invalid after persist, skipping transcription`);
           stableUri = null;
         } else {
           chunkUrisRef.current.push(stableUri);
+          console.log(`[cycleChunk] ✅ chunk #${chunkIndex} persisted | size=${validation.size} bytes`);
         }
       }
 
-      if (isRecordingRef.current) {
+      // Re-check: stop may have been called while we were persisting the file
+      if (isRecordingRef.current && !isStoppingRef.current) {
+        // Re-assert audio session in case it was disrupted during the persist window
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: true,
+          interruptionModeIOS: 1, // DoNotMix
+          shouldDuckAndroid: true,
+          interruptionModeAndroid: 1,
+          playThroughEarpieceAndroid: false,
+        });
         const { recording: newRec } = await Audio.Recording.createAsync(
           Audio.RecordingOptionsPresets.HIGH_QUALITY
         );
         recordingRef.current = newRec;
         setRecording(newRec);
+        console.log(`[cycleChunk] ✅ new recording started for chunk #${chunkCounterRef.current}`);
+      } else {
+        console.log(`[cycleChunk] stop detected after persist — not starting new recording for chunk #${chunkCounterRef.current}`);
       }
 
       if (stableUri) {
@@ -358,7 +416,7 @@ export default function RecordScreen() {
         processTranscriptionQueue();
       }
     } catch (err) {
-      console.error('[cycleChunk] Failed to cycle chunk', err);
+      console.error(`[cycleChunk] ❌ Failed to cycle chunk #${chunkIndex}:`, err);
     }
   };
 
@@ -477,8 +535,11 @@ export default function RecordScreen() {
   const stopRecording = async () => {
     if (!isRecording) return;
 
+    // Set both flags atomically so cycleChunk will not start a new recording object
     isRecordingRef.current = false;
+    isStoppingRef.current = true;
     setIsRecording(false);
+    console.log(`[stopRecording] ▶ triggered | session duration: ${Math.round(durationRef.current / 1000)}s | chunks accumulated: ${chunkCounterRef.current}`);
 
     const currentRec = recordingRef.current;
     if (!currentRec) {
@@ -558,11 +619,14 @@ export default function RecordScreen() {
           duration: durationRef.current,
           transcript: fullString,
         });
+        console.log(`[stopRecording] ✅ recording saved | id=${activeRecordingIdRef.current} | chunks=${chunkUrisRef.current.length} | transcript=${fullString.length} chars`);
         activeRecordingIdRef.current = null;
+        isStoppingRef.current = false;
         router.replace(`/(tabs)`);
       }
     } catch (err) {
-      console.error('[stopRecording] failed:', err);
+      console.error('[stopRecording] ❌ failed:', err);
+      isStoppingRef.current = false;
     }
   };
 
