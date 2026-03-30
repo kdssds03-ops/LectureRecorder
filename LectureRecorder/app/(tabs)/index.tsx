@@ -30,7 +30,7 @@ export default function HomeScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
 
-  const { recordings, loadRecordings, deleteRecording } = useRecordingStore();
+  const { recordings, loadRecordings, removeRecording: deleteRecording } = useRecordingStore();
   const { folders, addFolder, deleteFolder, expandedFolders, toggleFolder } = useFolderStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -259,6 +259,24 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  headerTopArea: {
+    paddingHorizontal: Spacing.screenPadding,
+    paddingTop: Spacing.lg,
+    alignItems: 'flex-end',
+  },
+  actionPill: {
+    flexDirection: 'row',
+    borderRadius: Radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 4,
+  },
+  actionPillButton: {
+    width: 38,
+    height: 38,
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
   },
   header: {
     flexDirection: 'row',

@@ -376,7 +376,9 @@ export async function summarizeText(
   const res = await axios.post(
     `${baseUrl}/api/summarize`,
     { text, lectureType, language },
-    { headers, timeout: 90_000, ...ACCEPT_ALL }
+    // Chunked path for long lectures can take several minutes on the backend;
+    // 5 min gives enough headroom even for 60-min recordings.
+    { headers, timeout: 300_000, ...ACCEPT_ALL }
   );
   assertStatus(res);
 
