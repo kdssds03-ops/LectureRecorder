@@ -1,0 +1,70 @@
+[startup] Validating required environment variables...
+[startup]   ✓ ASSEMBLYAI_API_KEY — configured (transcription (AssemblyAI))
+[startup]   ✓ OPENAI_API_KEY — configured (summarization / translation / title)
+[startup]   ✓ APP_SECRET — configured (request authentication)
+[startup] All required env vars are configured.
+[server] LectureRecorder API listening on port 3102
+[transcribe/quick] POST /quick — incoming
+[transcribe/quick] file — name=sample-ko.mp3, mime=application/octet-stream, size=185088 bytes (0.18 MB), tmpPath=C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201859174-0p887c86wbd.tmp
+[transcribe/quick] uploading to AssemblyAI...
+[transcribe/quick] upload done — elapsed=1.0s, upload_url=https://cdn.assemblyai.com/upload/f4e7a0e3ed26726dd9729bd2f958c4e32c7e4a066a9da176893c0283997d7460/6eaec813-7422-4dae-bb08-eb9bdc4c185c
+[transcribe/quick] creating transcription job...
+[transcribe] cleanup: deleted temp file C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201859174-0p887c86wbd.tmp
+[transcribe/quick] job created — elapsed=1.2s, jobId=e32f2af2-692c-4a64-acbd-e5365e07f288
+[transcribe/quick] completed on poll #2 — total 3.5s
+[transcribe/quick] POST /quick — incoming
+[transcribe/quick] file — name=sample-ko.mp3, mime=application/octet-stream, size=185088 bytes (0.18 MB), tmpPath=C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201862856-ng1rrl4yfk.tmp
+[transcribe/quick] uploading to AssemblyAI...
+[transcribe/quick] upload done — elapsed=0.6s, upload_url=https://cdn.assemblyai.com/upload/11994e3da4427380bcfb92a8fe7f89ff4d27213bdbbd1d1477d458077d1eccd8/1753c7bf-67ab-434f-9202-57494cef408b
+[transcribe/quick] creating transcription job...
+[transcribe] cleanup: deleted temp file C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201862856-ng1rrl4yfk.tmp
+[transcribe/quick] job created — elapsed=0.8s, jobId=1869679d-b735-44b5-8264-c60705e78a01
+[transcribe/quick] completed on poll #1 — total 2.0s
+[transcribe/quick] POST /quick — incoming
+[transcribe/quick] file — name=sample-zh.mp3, mime=application/octet-stream, size=108288 bytes (0.10 MB), tmpPath=C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201864991-tiatoo8jek.tmp
+[transcribe/quick] uploading to AssemblyAI...
+[transcribe/quick] upload done — elapsed=0.3s, upload_url=https://cdn.assemblyai.com/upload/ec595f2aff3427a657c696b342d8f099d24c8a2028d17af806c4dc92e190389d/0c7112f7-e8e1-4578-adf2-1f458ee76b3b
+[transcribe/quick] creating transcription job...
+[transcribe] cleanup: deleted temp file C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201864991-tiatoo8jek.tmp
+[transcribe/quick] job created — elapsed=0.5s, jobId=6c35441f-9e8b-44ca-8294-af7963fa71f1
+[transcribe/quick] completed on poll #1 — total 1.7s
+[transcribe/quick] POST /quick — incoming
+[transcribe/quick] file — name=sample-zh.mp3, mime=application/octet-stream, size=108288 bytes (0.10 MB), tmpPath=C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201866762-1arcncsjp72.tmp
+[transcribe/quick] uploading to AssemblyAI...
+[transcribe/quick] upload done — elapsed=0.3s, upload_url=https://cdn.assemblyai.com/upload/8e037af8aaf1f7202fab25e50051dcaaba1b61e28145ee9867150324fe82b15a/2c5be8f6-ef0e-4b94-9d0b-6d7e3789fadc
+[transcribe/quick] creating transcription job...
+[transcribe] cleanup: deleted temp file C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201866762-1arcncsjp72.tmp
+[transcribe/quick] job created — elapsed=0.5s, jobId=b5aa92b5-90b4-4c72-b658-b0cb944f2971
+[transcribe/quick] completed on poll #3 — total 4.1s
+[transcribe/quick] POST /quick — incoming
+[transcribe/quick] file — name=valid-ko.mp3, mime=application/octet-stream, size=76032 bytes (0.07 MB), tmpPath=C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201870901-aof5mtmnxt.tmp
+[transcribe/quick] uploading to AssemblyAI...
+[transcribe/quick] upload done — elapsed=0.3s, upload_url=https://cdn.assemblyai.com/upload/7d11ce1402d9f8ce421ba8a8e19eb943182c0ee2b26c6ac8f6d3bfedf112e0e9/c3934113-4e29-4eef-96af-688ddeadd600
+[transcribe/quick] creating transcription job...
+[transcribe] cleanup: deleted temp file C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201870901-aof5mtmnxt.tmp
+[transcribe/quick] job created — elapsed=0.5s, jobId=9c62bc35-86e6-4724-aae6-259c2bdd3f24
+[transcribe/quick] completed on poll #1 — total 1.7s
+[transcribe/quick] POST /quick — incoming
+[transcribe/quick] file — name=valid-ko.mp3, mime=application/octet-stream, size=76032 bytes (0.07 MB), tmpPath=C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201872721-ehendt4djd.tmp
+[transcribe/quick] uploading to AssemblyAI...
+[transcribe/quick] upload done — elapsed=0.3s, upload_url=https://cdn.assemblyai.com/upload/b16883c6023065e919a3b6dc36b8680ec75ffa9ce25e84ecd4f526644cfe2a13/522eb626-81e3-4d2a-9dab-6864ea390510
+[transcribe/quick] creating transcription job...
+[transcribe] cleanup: deleted temp file C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201872721-ehendt4djd.tmp
+[transcribe/quick] job created — elapsed=0.5s, jobId=fbfedcc7-c56c-4953-9094-1f370294be8f
+[transcribe/quick] completed on poll #1 — total 1.7s
+[transcribe/quick] POST /quick — incoming
+[transcribe/quick] file — name=valid-zh.mp3, mime=application/octet-stream, size=60288 bytes (0.06 MB), tmpPath=C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201874538-nu9w2gbr4la.tmp
+[transcribe/quick] uploading to AssemblyAI...
+[transcribe/quick] upload done — elapsed=0.3s, upload_url=https://cdn.assemblyai.com/upload/acc1d6a872be640f8aa9f7fe9717a11beea8f794ed4329bf1ed6255531edc75c/fc344816-a4e5-4f1c-9420-41e8a6b58337
+[transcribe/quick] creating transcription job...
+[transcribe] cleanup: deleted temp file C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201874538-nu9w2gbr4la.tmp
+[transcribe/quick] job created — elapsed=0.5s, jobId=1499c86d-d4a0-4de8-9cb2-248a9d1efe01
+[transcribe/quick] completed on poll #3 — total 4.0s
+[transcribe/quick] POST /quick — incoming
+[transcribe/quick] file — name=valid-zh.mp3, mime=application/octet-stream, size=60288 bytes (0.06 MB), tmpPath=C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201878684-sf1372qzxcd.tmp
+[transcribe/quick] uploading to AssemblyAI...
+[transcribe/quick] upload done — elapsed=0.3s, upload_url=https://cdn.assemblyai.com/upload/fb65a406671a86af9a83c7b6f785c02a0fe0b56cdf4819e3fd1207ffd11d1754/dfebd04c-6611-4e01-a391-5dd4e15e1cc4
+[transcribe/quick] creating transcription job...
+[transcribe] cleanup: deleted temp file C:\Users\kdssd\AppData\Local\Temp\lecture-audio-1775201878684-sf1372qzxcd.tmp
+[transcribe/quick] job created — elapsed=0.5s, jobId=e9c60387-9441-4ed6-9979-94f3290a3cda
+[transcribe/quick] completed on poll #2 — total 2.9s

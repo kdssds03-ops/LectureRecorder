@@ -1,0 +1,75 @@
+{
+  "expo": {
+    "name": "노깡",
+    "slug": "nokkang",
+    "version": "1.0.0",
+    "description": "강의를 녹음하고 AI를 통해 자동으로 텍스트 변환, 요약, 번역까지 제공하는 스마트 강의 도우미입니다.",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#F9F7F2"
+    },
+    "scheme": "nokkang",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.hyunminkim.nokkang",
+      "buildNumber": "1",
+      "icon": "./assets/images/icon.png",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "강의 내용을 실시간으로 녹음하고 텍스트로 변환하기 위해 마이크 접근 권한이 필요합니다.",
+        "NSSpeechRecognitionUsageDescription": "음성을 텍스트로 변환하기 위해 음성 인식 권한이 필요합니다.",
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": ["audio"]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#FDFCF8",
+        "foregroundImage": "./assets/images/icon.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.hyunminkim.nokkang",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash.png",
+          "imageWidth": 200,
+          "resizeMode": "cover",
+          "backgroundColor": "#F9F7F2",
+          "dark": {
+            "backgroundColor": "#1C1C1E"
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d3dbdfd1-5b27-443f-bc76-00a16bb8d108"
+      }
+    },
+    "owner": "walter-a"
+  }
+}

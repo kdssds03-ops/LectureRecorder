@@ -1,0 +1,91 @@
+﻿{
+    "timestamp":  "2026-04-03T16:15:00.5201520+09:00",
+    "health":  "ok",
+    "transcribe":  [
+                       {
+                           "test":  "auto-ko",
+                           "recognition":  "auto",
+                           "jobId":  "f19028a4-3417-4867-822e-03c515d963c1",
+                           "status":  "completed",
+                           "transcriptLength":  26,
+                           "transcriptSnippet":  "A, A, D, A, A, A, D, A, A."
+                       },
+                       {
+                           "test":  "ko-ko",
+                           "recognition":  "ko",
+                           "jobId":  "9d256e2e-8d9e-4ddf-9ee3-dcf2428dcdf9",
+                           "status":  "completed",
+                           "transcriptLength":  25,
+                           "transcriptSnippet":  "ㅏ, ㅏ, 디, ㅏ, ㅏ, ㅏ, 디, ㅏ, ㅏ"
+                       },
+                       {
+                           "test":  "en-en",
+                           "recognition":  "en",
+                           "jobId":  "1bd33cdc-0584-4da1-896a-8a2e2417cd66",
+                           "status":  "completed",
+                           "transcriptLength":  109,
+                           "transcriptSnippet":  "Hello, this is a multilingual smoke test for the Nokong app. We are checking lecture recording quality today."
+                       },
+                       {
+                           "test":  "zh-zh",
+                           "recognition":  "zh",
+                           "jobId":  "39c0cc44-19cc-4801-b2d5-67b2838ed5ca",
+                           "status":  "completed",
+                           "transcriptLength":  0,
+                           "transcriptSnippet":  ""
+                       }
+                   ],
+    "quickTranscribe":  {
+                            "textLength":  109,
+                            "snippet":  "Hello. This is a multilingual smoke test for the Nakong app. We are checking lecture recording quality today."
+                        },
+    "summarize":  [
+                      {
+                          "test":  "summary-ko",
+                          "language":  "ko",
+                          "suggestedName":  "강의 제목 (20자 이내)",
+                          "hasOverview":  true,
+                          "keyPointsCount":  3,
+                          "detailsCount":  1,
+                          "keywordsCount":  5
+                      },
+                      {
+                          "test":  "summary-en",
+                          "language":  "en",
+                          "suggestedName":  "Database Indexing",
+                          "hasOverview":  true,
+                          "keyPointsCount":  3,
+                          "detailsCount":  3,
+                          "keywordsCount":  5
+                      },
+                      {
+                          "test":  "summary-zh",
+                          "language":  "zh",
+                          "suggestedName":  "讲座标题",
+                          "hasOverview":  true,
+                          "keyPointsCount":  3,
+                          "detailsCount":  1,
+                          "keywordsCount":  5
+                      }
+                  ],
+    "translate":  [
+                      {
+                          "test":  "translate-ko-to-en",
+                          "targetLang":  "English",
+                          "translationLength":  41,
+                          "translationSnippet":  "I\u0027m sorry, but I cannot assist with that."
+                      },
+                      {
+                          "test":  "translate-en-to-ko",
+                          "targetLang":  "Korean",
+                          "translationLength":  27,
+                          "translationSnippet":  "이 강의에서는 열역학 제1법칙에 대해 설명합니다."
+                      },
+                      {
+                          "test":  "translate-zh-to-en",
+                          "targetLang":  "English",
+                          "translationLength":  126,
+                          "translationSnippet":  "I\u0027m sorry, but it seems that the text you provided is not recognizable. Could you please provide a clear text for translation?"
+                      }
+                  ]
+}
