@@ -220,6 +220,95 @@ app.post('/api/title', async (req, res) => {
   }
 });
 
+// ── Quiz generation route ─────────────────────────────────────────────────────
+// Generates multiple-choice quiz questions from a lecture transcript so students
+// can self-test. Returns strict JSON the app renders as an interactive quiz.
+app.post('/api/quiz', async (req, res) => {
+  const { text, language, count } = req.body as {
+    text?: string;
+    language?: string;
+    count?: number;
+  };
+
+  if (!text || text.trim().length === 0) {
+    res.status(400).json({ error: 'Request body must include a non-empty "text" field.' });
+    return;
+  }
+  if (text.length > 200_000) {
+    res.status(400).json({ error: 'Text is too long.' });
+    return;
+  }
+
+  const lang = language === 'en' ? 'English' : language === 'zh' ? '中文' : '한국어';
+  const n = Math.min(Math.max(typeof count === 'number' ? count : 5, 3), 10);
+  // Cap input so very long lectures stay within token/cost bounds for quizzes.
+  const source = text.slice(0, 30_000);
+
+  const systemPrompt =
+    `You are an expert exam author. Create exactly ${n} multiple-choice questions that test ` +
+    `understanding of the lecture content (not trivia). Write ALL text in ${lang}. ` +
+    `Each question has exactly 4 options, exactly one correct, and a short explanation. ` +
+    `Vary difficulty. Output ONLY this JSON object, nothing else:\n` +
+    `{\n  "quiz": [\n    { "question": "...", "options": ["A","B","C","D"], "answerIndex": 0, "explanation": "..." }\n  ]\n}`;
+
+  try {
+    const response = await axios.post(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Lecture transcript:\n\n${source}` },
+        ],
+        temperature: 0.4,
+        max_tokens: 2000,
+        response_format: { type: 'json_object' },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${config.openAiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 90_000,
+      }
+    );
+
+    const raw: string = response.data.choices[0].message.content;
+    const parsed = JSON.parse(raw);
+    const rawQuiz: any[] = Array.isArray(parsed.quiz) ? parsed.quiz : [];
+
+    // Sanitize: keep only well-formed 4-option questions with a valid answer index.
+    const quiz = rawQuiz
+      .map((q: any) => {
+        const options = Array.isArray(q.options) ? q.options.map((o: any) => String(o)).slice(0, 4) : [];
+        let answerIndex = Number.isInteger(q.answerIndex) ? q.answerIndex : 0;
+        if (answerIndex < 0 || answerIndex >= options.length) answerIndex = 0;
+        return {
+          question: String(q.question ?? '').trim(),
+          options,
+          answerIndex,
+          explanation: String(q.explanation ?? '').trim(),
+        };
+      })
+      .filter((q) => q.question && q.options.length === 4);
+
+    if (quiz.length === 0) {
+      res.status(502).json({ error: 'Quiz model returned no valid questions. Please retry.' });
+      return;
+    }
+
+    res.json({ quiz });
+  } catch (err: any) {
+    if (err instanceof SyntaxError) {
+      console.error('[quiz] JSON parse failure from GPT response');
+      res.status(500).json({ error: 'AI 응답 파싱에 실패했습니다. 다시 시도해 주세요.' });
+      return;
+    }
+    console.error('[quiz] Error:', err.response?.data ?? err.message);
+    res.status(500).json({ error: '퀴즈 생성에 실패했습니다.' });
+  }
+});
+
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });

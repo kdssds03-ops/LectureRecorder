@@ -568,3 +568,39 @@ export async function generateRecordingTitle(text: string): Promise<string> {
   console.log(`[Diagnostic] generateRecordingTitle success: '${finalTitle}'`);
   return finalTitle;
 }
+
+/**
+ * Send transcript text to backend → backend calls OpenAI → return quiz questions.
+ * Returns an array of multiple-choice questions for self-testing.
+ */
+export async function generateQuiz(
+  text: string,
+  language: string = 'ko',
+  count: number = 5
+): Promise<import('@/store/useRecordingStore').QuizQuestion[]> {
+  const baseUrl = await getBackendUrl();
+  assertBackendUrl(baseUrl, 'generateQuiz');
+  const headers = await buildHeaders();
+
+  if (!headers['x-app-key']) {
+    throw new Error('앱 시크릿 키가 설정되지 않았습니다. 설정 탭에서 입력해 주세요.');
+  }
+
+  let res;
+  try {
+    res = await axios.post(
+      `${baseUrl}/api/quiz`,
+      { text, language, count },
+      { headers, timeout: 120_000, ...ACCEPT_ALL }
+    );
+    assertStatus(res);
+  } catch (err: any) {
+    throw classifyNetworkError(err, 'generateQuiz');
+  }
+
+  const quiz = (res.data as { quiz?: any[] }).quiz;
+  if (!Array.isArray(quiz) || quiz.length === 0) {
+    throw new Error('퀴즈를 생성하지 못했습니다. 다시 시도해 주세요.');
+  }
+  return quiz as import('@/store/useRecordingStore').QuizQuestion[];
+}

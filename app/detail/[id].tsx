@@ -8,6 +8,8 @@ import { useSettingsStore } from '@/store/useSettingsStore';
 import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import * as Clipboard from 'expo-clipboard';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -15,6 +17,7 @@ import {
   Alert,
   Modal,
   SafeAreaView,
+  Share,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,7 +26,7 @@ import {
   View,
 } from 'react-native';
 
-type TabType = 'transcript' | 'summary' | 'translation';
+type TabType = 'transcript' | 'summary' | 'translation' | 'quiz';
 
 interface StructuredSummary {
   lectureType?: string;
@@ -80,6 +83,7 @@ export default function DetailScreen() {
   const recording = useRecordingStore((state) => state.recordings.find((r) => r.id === id));
   const updateRecording = useRecordingStore((state) => state.updateRecording);
   const fetchSummary = useRecordingStore((state) => state.fetchSummary);
+  const fetchQuiz = useRecordingStore((state) => state.fetchQuiz);
   const recognitionLanguage = useSettingsStore((state) => state.recognitionLanguage);
   const translationLanguage = useSettingsStore((state) => state.translationLanguage);
 
@@ -89,6 +93,9 @@ export default function DetailScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('transcript');
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState('');
+
+  const [quizSelected, setQuizSelected] = useState<Record<number, number>>({});
+  const [quizSubmitted, setQuizSubmitted] = useState(false);
 
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
@@ -203,6 +210,128 @@ export default function DetailScreen() {
       setProcessingStatus('');
     }
   }, [recording, translationLanguage, updateRecording]);
+
+  const handleQuiz = useCallback(async () => {
+    if (!recording || !recording.transcript) {
+      Alert.alert('알림', '먼저 음성을 텍스트로 변환해 주세요.');
+      return;
+    }
+    setIsProcessing(true);
+    setProcessingStatus('AI 퀴즈 생성 중...');
+    try {
+      await fetchQuiz(recording.id);
+      setQuizSelected({});
+      setQuizSubmitted(false);
+    } catch (error: any) {
+      Alert.alert('퀴즈 생성 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
+    } finally {
+      setIsProcessing(false);
+      setProcessingStatus('');
+    }
+  }, [recording, fetchQuiz]);
+
+  // Build a shareable Markdown document from everything we have for this recording.
+  const buildExportMarkdown = (): string => {
+    if (!recording) return '';
+    const parts: string[] = [`# ${displayName}`];
+    const dateStr = new Date(recording.createdAt || Date.now()).toLocaleString('ko-KR');
+    parts.push(`_${dateStr}_`);
+
+    if (recording.transcript) {
+      parts.push(`\n## 음성인식\n\n${recording.transcript}`);
+    }
+
+    if (recording.summary) {
+      const sd = typeof recording.summary === 'object'
+        ? recording.summary
+        : parseStructuredSummary(String(recording.summary));
+      if (sd) {
+        const sec: string[] = ['\n## 요약'];
+        if (sd.overview) sec.push(`\n### 개요\n${sd.overview}`);
+        if (sd.keyPoints?.length) sec.push(`\n### 핵심 포인트\n${sd.keyPoints.map((x: string) => `- ${x}`).join('\n')}`);
+        if (sd.details?.length) sec.push(`\n### 상세 내용\n${sd.details.map((d: { heading: string; content: string }) => `**${d.heading}**\n${d.content}`).join('\n\n')}`);
+        if (sd.keywords?.length) sec.push(`\n### 키워드\n${sd.keywords.map((k: string) => `#${k}`).join(' ')}`);
+        if (sd.studyTips) sec.push(`\n### 학습 팁\n${sd.studyTips}`);
+        parts.push(sec.join('\n'));
+      } else {
+        parts.push(`\n## 요약\n\n${String(recording.summary)}`);
+      }
+    }
+
+    if (recording.translation) {
+      parts.push(`\n## 메모 / 번역\n\n${recording.translation}`);
+    }
+
+    if (recording.quiz?.length) {
+      const q = recording.quiz.map((item, i) => {
+        const opts = item.options.map((o, j) => `${j === item.answerIndex ? '✅' : '▫️'} ${o}`).join('\n');
+        return `**Q${i + 1}. ${item.question}**\n${opts}\n해설: ${item.explanation}`;
+      }).join('\n\n');
+      parts.push(`\n## 퀴즈\n\n${q}`);
+    }
+
+    return parts.join('\n');
+  };
+
+  const escapeHtml = (t: string) =>
+    t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const buildExportHtml = (): string => {
+    const md = buildExportMarkdown();
+    // Lightweight markdown-ish → HTML (headings + line breaks) for PDF rendering.
+    const body = md.split('\n').map((line) => {
+      if (line.startsWith('### ')) return `<h3>${escapeHtml(line.slice(4))}</h3>`;
+      if (line.startsWith('## ')) return `<h2>${escapeHtml(line.slice(3))}</h2>`;
+      if (line.startsWith('# ')) return `<h1>${escapeHtml(line.slice(2))}</h1>`;
+      if (line.trim() === '') return '<br/>';
+      return `<p>${escapeHtml(line)}</p>`;
+    }).join('\n');
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+      <style>
+        body { font-family: -apple-system, 'Helvetica Neue', sans-serif; padding: 32px; color: #1c1c1e; line-height: 1.6; }
+        h1 { font-size: 24px; } h2 { font-size: 19px; margin-top: 24px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+        h3 { font-size: 16px; color: #555; } p { margin: 4px 0; font-size: 14px; }
+      </style></head><body>${body}</body></html>`;
+  };
+
+  const handleShare = () => {
+    if (!recording?.transcript) {
+      setSnackbarMessage('내보낼 내용이 없습니다.');
+      setSnackbarVisible(true);
+      return;
+    }
+    Alert.alert('내보내기', '어떤 형식으로 내보낼까요?', [
+      {
+        text: '텍스트로 공유',
+        onPress: async () => {
+          try {
+            await Share.share({ message: buildExportMarkdown() });
+          } catch {
+            setSnackbarMessage('공유에 실패했습니다.');
+            setSnackbarVisible(true);
+          }
+        },
+      },
+      {
+        text: 'PDF로 내보내기',
+        onPress: async () => {
+          try {
+            const { uri } = await Print.printToFileAsync({ html: buildExportHtml() });
+            if (await Sharing.isAvailableAsync()) {
+              await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: displayName });
+            } else {
+              setSnackbarMessage('이 기기에서는 공유를 사용할 수 없습니다.');
+              setSnackbarVisible(true);
+            }
+          } catch {
+            setSnackbarMessage('PDF 내보내기에 실패했습니다.');
+            setSnackbarVisible(true);
+          }
+        },
+      },
+      { text: '취소', style: 'cancel' },
+    ]);
+  };
 
   const handleCopy = async () => {
     if (!recording) return;
@@ -366,6 +495,106 @@ export default function DetailScreen() {
     return <Text style={[styles.transcriptBody, { color: theme.text }]}>{String(recording.summary)}</Text>;
   };
 
+  const renderQuiz = () => {
+    const quiz = recording?.quiz;
+    if (!quiz || quiz.length === 0) return null;
+
+    const answeredCount = Object.keys(quizSelected).length;
+    const allAnswered = answeredCount === quiz.length;
+    const score = quiz.reduce(
+      (acc, q, i) => acc + (quizSelected[i] === q.answerIndex ? 1 : 0),
+      0
+    );
+
+    return (
+      <View style={styles.summaryContainer}>
+        {quizSubmitted && (
+          <View style={[styles.scoreCard, { backgroundColor: theme.primary + '15', borderColor: theme.primary + '30' }]}>
+            <Text style={[styles.scoreText, { color: theme.primary }]}>
+              {quiz.length}문제 중 {score}개 정답
+            </Text>
+          </View>
+        )}
+
+        {quiz.map((q, qi) => {
+          const selected = quizSelected[qi];
+          return (
+            <View
+              key={`q-${qi}`}
+              style={[styles.summaryCard, { backgroundColor: theme.surface, borderColor: theme.border, marginBottom: Spacing.md }]}
+            >
+              <Text style={[styles.quizQuestion, { color: theme.text }]}>
+                {qi + 1}. {q.question}
+              </Text>
+              {q.options.map((opt, oi) => {
+                const isSelected = selected === oi;
+                const isCorrect = oi === q.answerIndex;
+                let borderColor = theme.border;
+                let bg = theme.background;
+                if (quizSubmitted) {
+                  if (isCorrect) { borderColor = '#34C759'; bg = '#34C75915'; }
+                  else if (isSelected) { borderColor = '#FF3B30'; bg = '#FF3B3015'; }
+                } else if (isSelected) {
+                  borderColor = theme.primary; bg = theme.primary + '15';
+                }
+                return (
+                  <TouchableOpacity
+                    key={`o-${qi}-${oi}`}
+                    activeOpacity={0.7}
+                    disabled={quizSubmitted}
+                    onPress={() => setQuizSelected((prev) => ({ ...prev, [qi]: oi }))}
+                    style={[styles.quizOption, { borderColor, backgroundColor: bg }]}
+                  >
+                    <Text style={[styles.quizOptionText, { color: theme.text }]}>{opt}</Text>
+                    {quizSubmitted && isCorrect && (
+                      <Feather name="check" size={18} color="#34C759" />
+                    )}
+                    {quizSubmitted && isSelected && !isCorrect && (
+                      <Feather name="x" size={18} color="#FF3B30" />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+              {quizSubmitted && !!q.explanation && (
+                <Text style={[styles.quizExplanation, { color: theme.textSecondary }]}>
+                  💡 {q.explanation}
+                </Text>
+              )}
+            </View>
+          );
+        })}
+
+        {!quizSubmitted ? (
+          <TouchableOpacity
+            style={[styles.actionButton, { backgroundColor: allAnswered ? theme.primary : theme.unselectedChip, ...Shadows.soft, alignSelf: 'stretch', marginTop: Spacing.sm }]}
+            disabled={!allAnswered}
+            onPress={() => setQuizSubmitted(true)}
+          >
+            <Text style={[styles.actionButtonText, { color: allAnswered ? '#fff' : theme.textSecondary }]}>
+              {allAnswered ? '채점하기' : `${answeredCount}/${quiz.length} 풀이 완료`}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm }}>
+            <TouchableOpacity
+              style={[styles.outlineButton, { flex: 1, borderColor: theme.border, backgroundColor: theme.surface, ...Shadows.soft }]}
+              onPress={() => { setQuizSelected({}); setQuizSubmitted(false); }}
+            >
+              <Feather name="rotate-ccw" size={16} color={theme.textSecondary} style={{ marginRight: Spacing.sm }} />
+              <Text style={[styles.outlineButtonText, { color: theme.textSecondary }]}>다시 풀기</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, { flex: 1, backgroundColor: theme.primary, ...Shadows.soft }]}
+              onPress={handleQuiz}
+            >
+              <Text style={[styles.actionButtonText, { color: '#fff' }]}>새 퀴즈</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
@@ -377,7 +606,7 @@ export default function DetailScreen() {
         </TouchableOpacity>
 
         <View style={[styles.pillTabsContainer, { backgroundColor: theme.unselectedChip }]}>
-          {(['transcript', 'summary', 'translation'] as TabType[]).map((tab) => (
+          {(['transcript', 'summary', 'translation', 'quiz'] as TabType[]).map((tab) => (
             <TouchableOpacity
               key={tab}
               onPress={() => setActiveTab(tab)}
@@ -394,7 +623,7 @@ export default function DetailScreen() {
                   { color: activeTab === tab ? theme.text : theme.textSecondary },
                 ]}
               >
-                {tab === 'transcript' ? '음성인식' : tab === 'summary' ? '요약' : '메모'}
+                {tab === 'transcript' ? '음성인식' : tab === 'summary' ? '요약' : tab === 'translation' ? '메모' : '퀴즈'}
               </Text>
             </TouchableOpacity>
           ))}
@@ -486,7 +715,7 @@ export default function DetailScreen() {
                 </TouchableOpacity>
               </View>
             )
-          ) : (
+          ) : activeTab === 'translation' ? (
             recording?.translation ? (
               <Text style={[styles.transcriptBody, { color: theme.text }]}>{recording.translation}</Text>
             ) : (
@@ -499,6 +728,19 @@ export default function DetailScreen() {
                 </TouchableOpacity>
               </View>
             )
+          ) : (
+            recording?.quiz && recording.quiz.length > 0 ? (
+              renderQuiz()
+            ) : (
+              <View style={styles.emptyContentContainer}>
+                <Text style={[styles.emptyContentText, { color: theme.textSecondary }]}>
+                  강의 내용으로 퀴즈를 만들어 복습해보세요
+                </Text>
+                <TouchableOpacity style={[styles.actionButton, { backgroundColor: theme.primary, ...Shadows.soft }]} onPress={handleQuiz}>
+                  <Text style={styles.actionButtonText}>퀴즈 만들기</Text>
+                </TouchableOpacity>
+              </View>
+            )
           )}
         </View>
       </ScrollView>
@@ -507,12 +749,20 @@ export default function DetailScreen() {
       {recording?.transcript && (
         <View style={styles.bottomActionArea}>
           <TouchableOpacity
-            style={[styles.outlineButton, { borderColor: theme.border, backgroundColor: theme.surface, ...Shadows.soft }]}
+            style={[styles.outlineButton, { flex: 1, borderColor: theme.border, backgroundColor: theme.surface, ...Shadows.soft }]}
             onPress={handleCopy}
             activeOpacity={0.7}
           >
             <Feather name="copy" size={18} color={theme.textSecondary} style={{ marginRight: Spacing.sm }} />
-            <Text style={[styles.outlineButtonText, { color: theme.textSecondary }]}>Copy</Text>
+            <Text style={[styles.outlineButtonText, { color: theme.textSecondary }]}>복사</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.outlineButton, { flex: 1, borderColor: theme.border, backgroundColor: theme.surface, ...Shadows.soft }]}
+            onPress={handleShare}
+            activeOpacity={0.7}
+          >
+            <Feather name="share" size={18} color={theme.textSecondary} style={{ marginRight: Spacing.sm }} />
+            <Text style={[styles.outlineButtonText, { color: theme.textSecondary }]}>내보내기</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -751,16 +1001,56 @@ const styles = StyleSheet.create({
   bottomActionArea: {
     position: 'absolute',
     bottom: Spacing.xl,
+    left: Spacing.screenPadding,
     right: Spacing.screenPadding,
-    alignItems: 'flex-end',
+    flexDirection: 'row',
+    gap: Spacing.sm,
   },
   outlineButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: Spacing.lg,
     paddingVertical: 10,
     borderRadius: Radius.pill,
     borderWidth: 1,
+  },
+  quizQuestion: {
+    ...Typography.bodyMedium,
+    fontWeight: '700',
+    marginBottom: Spacing.sm,
+  },
+  quizOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 12,
+    marginTop: Spacing.xs,
+  },
+  quizOptionText: {
+    ...Typography.bodyMedium,
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  quizExplanation: {
+    ...Typography.caption,
+    marginTop: Spacing.sm,
+    lineHeight: 18,
+  },
+  scoreCard: {
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    marginBottom: Spacing.lg,
+    alignItems: 'center',
+  },
+  scoreText: {
+    ...Typography.bodyLarge,
+    fontWeight: '700',
   },
   outlineButtonText: {
     ...Typography.bodyMedium,

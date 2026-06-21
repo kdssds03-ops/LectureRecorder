@@ -66,6 +66,13 @@ export function isStructuredSummary(summary: any): summary is StructuredSummary 
   return typeof summary === 'object' && summary !== null && 'overview' in summary;
 }
 
+export interface QuizQuestion {
+  question: string;
+  options: string[];
+  answerIndex: number;
+  explanation: string;
+}
+
 export interface RecordingMeta {
   id: string;
   name: string;
@@ -80,6 +87,8 @@ export interface RecordingMeta {
   summary?: string | StructuredSummary;
   translation?: string;
   isSummarizing?: boolean;
+  quiz?: QuizQuestion[];
+  isQuizzing?: boolean;
 }
 
 interface RecordingStore {
@@ -90,6 +99,7 @@ interface RecordingStore {
   moveToFolder: (recordingId: string, folderId: string | null) => void;
   loadRecordings: () => Promise<void>;
   fetchSummary: (recordingId: string) => Promise<void>;
+  fetchQuiz: (recordingId: string) => Promise<void>;
   generateTitleFromText: (recordingId: string, text: string) => Promise<void>;
   _hasHydrated: boolean;
 }
@@ -218,6 +228,25 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
       }
     } catch (error) {
       updateRecording(recordingId, { isSummarizing: false });
+      throw error;
+    }
+  },
+
+  fetchQuiz: async (recordingId: string) => {
+    const { recordings, updateRecording } = get();
+    const recording = recordings.find(r => r.id === recordingId);
+
+    if (!recording || !recording.transcript) return;
+
+    updateRecording(recordingId, { isQuizzing: true });
+
+    try {
+      const { generateQuiz } = require('@/api/aiService');
+      const summaryLanguage = useSettingsStore.getState().summaryLanguage;
+      const quiz = await generateQuiz(recording.transcript, summaryLanguage);
+      updateRecording(recordingId, { quiz, isQuizzing: false });
+    } catch (error) {
+      updateRecording(recordingId, { isQuizzing: false });
       throw error;
     }
   },
