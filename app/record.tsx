@@ -805,9 +805,16 @@ export default function RecordScreen() {
             onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
           >
             {transcriptChunks.length === 0 ? (
-              <Text style={[styles.emptyTranscript, { color: theme.textTertiary }]}>
-                {isRecording ? '듣고 있습니다...' : '강의 녹음을 시작해주세요.'}
-              </Text>
+              <View>
+                <Text style={[styles.emptyTranscript, { color: theme.textTertiary }]}>
+                  {isRecording ? '듣고 있습니다...' : '강의 녹음을 시작해주세요.'}
+                </Text>
+                {!isRecording && (
+                  <Text style={[styles.emptyTranscript, { color: theme.textTertiary, fontSize: 11, marginTop: 8, paddingHorizontal: 16, lineHeight: 16 }]}>
+                    타인의 음성을 녹음할 때는 사전에 동의를 받는 등 관련 법령을 준수해 주세요.
+                  </Text>
+                )}
+              </View>
             ) : (
               transcriptChunks.map((chunk) => (
                 <View key={chunk.index} style={styles.chunkItem}>

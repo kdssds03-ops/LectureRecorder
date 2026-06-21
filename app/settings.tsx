@@ -71,6 +71,13 @@ export default function SettingsScreen() {
     });
   };
 
+  const handleTerms = async () => {
+    await WebBrowser.openBrowserAsync('https://github.com/kdssds03-ops/LectureRecorder/blob/main/TERMS_OF_SERVICE.md', {
+      toolbarColor: theme.surface,
+      controlsColor: theme.primary,
+    });
+  };
+
   const handleSendFeedback = async () => {
     const subject = encodeURIComponent('[노깡 피드백] 사용자 의견');
     const body = encodeURIComponent('안녕하세요!\n\n노깡 앱 사용 중 느낀 점이나 개선 사항을 자유롭게 적어주세요.\n\n\n---\n앱 버전: 1.0.0\n기기: ' + Platform.OS);
@@ -147,6 +154,8 @@ export default function SettingsScreen() {
           <SectionHeader title="정보 & 지원" theme={theme} />
           <View style={[styles.sectionGroup, { backgroundColor: theme.surface, ...Shadows.soft }]}>
             <SettingRow icon="shield" label="개인정보 처리방침" theme={theme} onPress={handlePrivacyPolicy} />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            <SettingRow icon="file-text" label="이용약관" theme={theme} onPress={handleTerms} />
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             <SettingRow icon="mail" label="개발자에게 피드백 보내기" theme={theme} onPress={handleSendFeedback} />
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
