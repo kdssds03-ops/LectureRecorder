@@ -89,8 +89,8 @@ export default function DetailScreen() {
   const fetchQuiz = useRecordingStore((state) => state.fetchQuiz);
 
   // Free-tier gate: returns true if the action may proceed, else opens paywall.
-  const ensureCredit = useCallback((): boolean => {
-    if (useSubscriptionStore.getState().canUseAi()) return true;
+  const ensureMinutes = useCallback((): boolean => {
+    if (useSubscriptionStore.getState().canTranscribe()) return true;
     router.push('/paywall' as Href);
     return false;
   }, [router]);
@@ -178,13 +178,13 @@ export default function DetailScreen() {
 
   const handleTranscribe = useCallback(async () => {
     if (!recording) return;
-    if (!ensureCredit()) return;
+    if (!ensureMinutes()) return;
     setIsProcessing(true);
     setProcessingStatus('오디오 분석 중...');
     try {
       const result = await transcribeAudio(recording.uri, recognitionLanguage, diarizationEnabled);
       updateRecording(recording.id, { transcript: result });
-      useSubscriptionStore.getState().consumeCredit();
+      useSubscriptionStore.getState().consumeSeconds((recording.duration ?? 0) / 1000);
       const { generateTitleFromText } = useRecordingStore.getState();
       generateTitleFromText(recording.id, result);
     } catch (error: any) {
@@ -193,58 +193,52 @@ export default function DetailScreen() {
       setIsProcessing(false);
       setProcessingStatus('');
     }
-  }, [recording, recognitionLanguage, diarizationEnabled, updateRecording, ensureCredit]);
+  }, [recording, recognitionLanguage, diarizationEnabled, updateRecording, ensureMinutes]);
 
   const handleSummarize = useCallback(async () => {
     if (!recording || !recording.transcript) {
       Alert.alert('알림', '먼저 음성을 텍스트로 변환해 주세요.');
       return;
     }
-    if (!ensureCredit()) return;
     setIsProcessing(true);
     setProcessingStatus('AI 요약 생성 중...');
     try {
       await fetchSummary(recording.id);
-      useSubscriptionStore.getState().consumeCredit();
     } catch (error: any) {
       Alert.alert('요약 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
     } finally {
       setIsProcessing(false);
       setProcessingStatus('');
     }
-  }, [recording, fetchSummary, ensureCredit]);
+  }, [recording, fetchSummary]);
 
   const handleTranslate = useCallback(async () => {
     if (!recording || !recording.transcript) {
       Alert.alert('알림', '먼저 음성을 텍스트로 변환해 주세요.');
       return;
     }
-    if (!ensureCredit()) return;
     setIsProcessing(true);
     setProcessingStatus('번역 중...');
     try {
       const result = await translateText(recording.transcript, translationLanguage);
       updateRecording(recording.id, { translation: result });
-      useSubscriptionStore.getState().consumeCredit();
     } catch (error: any) {
       Alert.alert('번역 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
     } finally {
       setIsProcessing(false);
       setProcessingStatus('');
     }
-  }, [recording, translationLanguage, updateRecording, ensureCredit]);
+  }, [recording, translationLanguage, updateRecording]);
 
   const handleQuiz = useCallback(async () => {
     if (!recording || !recording.transcript) {
       Alert.alert('알림', '먼저 음성을 텍스트로 변환해 주세요.');
       return;
     }
-    if (!ensureCredit()) return;
     setIsProcessing(true);
     setProcessingStatus('AI 퀴즈 생성 중...');
     try {
       await fetchQuiz(recording.id);
-      useSubscriptionStore.getState().consumeCredit();
       setQuizSelected({});
       setQuizSubmitted(false);
     } catch (error: any) {
@@ -253,19 +247,17 @@ export default function DetailScreen() {
       setIsProcessing(false);
       setProcessingStatus('');
     }
-  }, [recording, fetchQuiz, ensureCredit]);
+  }, [recording, fetchQuiz]);
 
   const handleSendChat = async () => {
     const q = chatInput.trim();
     if (!q || chatLoading || !recording?.transcript) return;
-    if (!ensureCredit()) return;
     const next: ChatMessage[] = [...chatMessages, { role: 'user', content: q }];
     setChatMessages(next);
     setChatInput('');
     setChatLoading(true);
     try {
       const reply = await chatWithLecture(recording.transcript, next, summaryLanguage);
-      useSubscriptionStore.getState().consumeCredit();
       setChatMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
     } catch (e: any) {
       const msg = API_ERROR_MESSAGES[classifyApiError(e)] || '답변을 가져오지 못했습니다.';

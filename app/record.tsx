@@ -21,6 +21,7 @@ import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useRecordingStore, RecordingMeta, LectureType, LECTURE_TYPE_LABELS, LECTURE_TYPE_ICONS } from '@/store/useRecordingStore';
 import { quickTranscribe, summarizeText, translateText } from '@/api/aiService';
+import { useSubscriptionStore } from '@/store/useSubscriptionStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { Colors } from '@/constants/Colors';
 import { Spacing, Radius, Typography, Shadows } from '@/constants/theme';
@@ -501,6 +502,12 @@ export default function RecordScreen() {
   const startRecording = async () => {
     if (isStartingRecording || isRecording) return;
 
+    // Free-tier minute gate: block new recordings once the monthly quota is used up.
+    if (!useSubscriptionStore.getState().canTranscribe()) {
+      router.push('/paywall' as any);
+      return;
+    }
+
     setIsStartingRecording(true);
     console.log('[Recording] Attempting to start recording...');
 
@@ -678,6 +685,9 @@ export default function RecordScreen() {
           duration: durationRef.current,
           transcript: fullString,
         });
+
+        // Meter speech-to-text usage by the recorded duration.
+        useSubscriptionStore.getState().consumeSeconds(durationRef.current / 1000);
 
         console.log('[stopRecording] running final AI pass...');
         await generateFinalAIContent();

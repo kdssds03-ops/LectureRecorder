@@ -8,7 +8,7 @@ import { Spacing, Radius, Typography, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { setAppSecret } from '@/api/aiService';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { FREE_MONTHLY_CREDITS, useSubscriptionStore } from '@/store/useSubscriptionStore';
+import { FREE_MONTHLY_MINUTES, useSubscriptionStore } from '@/store/useSubscriptionStore';
 import { restorePurchases } from '@/api/purchases';
 
 function SectionHeader({ title, theme }: { title: string; theme: any }) {
@@ -47,7 +47,7 @@ export default function SettingsScreen() {
   const theme = Colors[colorScheme];
   const router = useRouter();
   const isPremium = useSubscriptionStore((s) => s.isPremium);
-  const remaining = useSubscriptionStore((s) => s.getRemaining());
+  const remaining = useSubscriptionStore((s) => s.getRemainingMinutes());
 
   const handleRestore = async () => {
     try {
@@ -179,7 +179,7 @@ export default function SettingsScreen() {
             <SettingRow
               icon="star"
               label={isPremium ? '프리미엄 이용 중' : '프리미엄 구독'}
-              value={isPremium ? '무제한' : `이번 달 ${remaining}/${FREE_MONTHLY_CREDITS}회 남음`}
+              value={isPremium ? '무제한' : `이번 달 ${remaining}분 남음`}
               theme={theme}
               onPress={() => router.push('/paywall' as Href)}
             />

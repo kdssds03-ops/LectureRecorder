@@ -18,6 +18,25 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 const BACKEND_URL_KEY = 'backend_url';
 const APP_SECRET_KEY = 'app_secret';
+const DEVICE_ID_KEY = 'device_id';
+
+let cachedDeviceId: string | null = null;
+
+function genDeviceId(): string {
+  return 'dev-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+}
+
+/** Stable per-install identifier used for server-side usage metering. */
+export async function getDeviceId(): Promise<string> {
+  if (cachedDeviceId) return cachedDeviceId;
+  let id = await AsyncStorage.getItem(DEVICE_ID_KEY);
+  if (!id) {
+    id = genDeviceId();
+    await AsyncStorage.setItem(DEVICE_ID_KEY, id);
+  }
+  cachedDeviceId = id;
+  return id;
+}
 const DEVELOPER_MODE_KEY = 'developer_mode';
 
 // EXPO_PUBLIC_BACKEND_URL is safe to embed (not a secret — it's just a URL).
@@ -112,7 +131,7 @@ export async function setAppSecret(secret: string): Promise<void> {
 }
 
 async function buildHeaders(): Promise<Record<string, string>> {
-  return { 'x-app-key': await getAppSecret() };
+  return { 'x-app-key': await getAppSecret(), 'x-device-id': await getDeviceId() };
 }
 
 // ── Status checking ───────────────────────────────────────────────────────────
@@ -271,6 +290,7 @@ export async function transcribeAudio(
       {
         headers: {
           'x-app-key': secret,
+          'x-device-id': await getDeviceId(),
           'Content-Type': 'multipart/form-data',
         },
         // 5 min upload timeout — large files on slow connections need headroom
@@ -403,6 +423,7 @@ export async function quickTranscribe(
       {
         headers: {
           'x-app-key': secret,
+          'x-device-id': await getDeviceId(),
           'Content-Type': 'multipart/form-data',
         },
         // 90 s — chunk transcriptions go through AssemblyAI; allow extra headroom

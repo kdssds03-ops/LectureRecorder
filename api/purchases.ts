@@ -17,6 +17,7 @@ import Purchases, {
   PurchasesPackage,
 } from 'react-native-purchases';
 import { useSubscriptionStore } from '@/store/useSubscriptionStore';
+import { getDeviceId } from '@/api/aiService';
 
 export const ENTITLEMENT_ID = 'premium';
 
@@ -40,7 +41,10 @@ export async function initPurchases(): Promise<void> {
   if (!isPurchasesEnabled() || configured) return;
   try {
     Purchases.setLogLevel(LOG_LEVEL.WARN);
-    Purchases.configure({ apiKey: apiKey() });
+    // Use our device id as the RevenueCat app_user_id so the backend can verify
+    // entitlements server-side with the same identifier.
+    const appUserID = await getDeviceId();
+    Purchases.configure({ apiKey: apiKey(), appUserID });
     configured = true;
     await refreshEntitlement();
   } catch (err) {

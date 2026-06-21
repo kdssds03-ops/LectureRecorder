@@ -2,7 +2,7 @@ import { Colors } from '@/constants/Colors';
 import { Radius, Shadows, Spacing, Typography } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getPackages, isPurchasesEnabled, purchase, restorePurchases } from '@/api/purchases';
-import { FREE_MONTHLY_CREDITS, useSubscriptionStore } from '@/store/useSubscriptionStore';
+import { FREE_MONTHLY_MINUTES, useSubscriptionStore } from '@/store/useSubscriptionStore';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -92,7 +92,7 @@ export default function PaywallScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={[styles.title, { color: theme.text }]}>노깡 프리미엄</Text>
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-          무료 플랜은 매월 {FREE_MONTHLY_CREDITS}회까지 AI 기능을 사용할 수 있어요.{'\n'}프리미엄으로 제한 없이 학습하세요.
+          무료 플랜은 매월 {FREE_MONTHLY_MINUTES}분까지 녹음·변환할 수 있어요.{'\n'}프리미엄으로 제한 없이 학습하세요.
         </Text>
 
         <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
