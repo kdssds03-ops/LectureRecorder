@@ -1,4 +1,4 @@
-import { transcribeAudio, translateText } from '@/api/aiService';
+import { ChatMessage, chatWithLecture, transcribeAudio, translateText } from '@/api/aiService';
 import Snackbar from '@/components/Snackbar';
 import { Colors } from '@/constants/Colors';
 import { Radius, Shadows, Spacing, Typography } from '@/constants/theme';
@@ -16,7 +16,9 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   SafeAreaView,
   Share,
   ScrollView,
@@ -94,6 +96,8 @@ export default function DetailScreen() {
   }, [router]);
   const recognitionLanguage = useSettingsStore((state) => state.recognitionLanguage);
   const translationLanguage = useSettingsStore((state) => state.translationLanguage);
+  const diarizationEnabled = useSettingsStore((state) => state.diarizationEnabled);
+  const summaryLanguage = useSettingsStore((state) => state.summaryLanguage);
 
   const displayName = recording?.name || paramName || '강의 기록';
   const displayDuration = recording?.duration || (paramDuration ? Number(paramDuration) : 0);
@@ -104,6 +108,11 @@ export default function DetailScreen() {
 
   const [quizSelected, setQuizSelected] = useState<Record<number, number>>({});
   const [quizSubmitted, setQuizSubmitted] = useState(false);
+
+  const [chatVisible, setChatVisible] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
 
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
@@ -173,7 +182,7 @@ export default function DetailScreen() {
     setIsProcessing(true);
     setProcessingStatus('오디오 분석 중...');
     try {
-      const result = await transcribeAudio(recording.uri, recognitionLanguage);
+      const result = await transcribeAudio(recording.uri, recognitionLanguage, diarizationEnabled);
       updateRecording(recording.id, { transcript: result });
       useSubscriptionStore.getState().consumeCredit();
       const { generateTitleFromText } = useRecordingStore.getState();
@@ -184,7 +193,7 @@ export default function DetailScreen() {
       setIsProcessing(false);
       setProcessingStatus('');
     }
-  }, [recording, recognitionLanguage, updateRecording, ensureCredit]);
+  }, [recording, recognitionLanguage, diarizationEnabled, updateRecording, ensureCredit]);
 
   const handleSummarize = useCallback(async () => {
     if (!recording || !recording.transcript) {
@@ -245,6 +254,26 @@ export default function DetailScreen() {
       setProcessingStatus('');
     }
   }, [recording, fetchQuiz, ensureCredit]);
+
+  const handleSendChat = async () => {
+    const q = chatInput.trim();
+    if (!q || chatLoading || !recording?.transcript) return;
+    if (!ensureCredit()) return;
+    const next: ChatMessage[] = [...chatMessages, { role: 'user', content: q }];
+    setChatMessages(next);
+    setChatInput('');
+    setChatLoading(true);
+    try {
+      const reply = await chatWithLecture(recording.transcript, next, summaryLanguage);
+      useSubscriptionStore.getState().consumeCredit();
+      setChatMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
+    } catch (e: any) {
+      const msg = API_ERROR_MESSAGES[classifyApiError(e)] || '답변을 가져오지 못했습니다.';
+      setChatMessages((prev) => [...prev, { role: 'assistant', content: '⚠️ ' + msg }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
 
   // Build a shareable Markdown document from everything we have for this recording.
   const buildExportMarkdown = (): string => {
@@ -421,6 +450,18 @@ export default function DetailScreen() {
             style={[styles.timestampPill, { backgroundColor: theme.unselectedChip }]}
           >
             <Text style={[styles.timestampText, { color: theme.textSecondary }]}>{line}</Text>
+          </View>
+        );
+        continue;
+      }
+      const speakerMatch = line.match(/^\[화자\s+(.+?)\]\s*(.*)$/);
+      if (speakerMatch) {
+        elements.push(
+          <View key={`sp-${i}`} style={styles.speakerRow}>
+            <View style={[styles.speakerBadge, { backgroundColor: theme.primary + '20' }]}>
+              <Text style={[styles.speakerBadgeText, { color: theme.primary }]}>화자 {speakerMatch[1]}</Text>
+            </View>
+            <Text style={[styles.transcriptBody, { color: theme.text, flex: 1 }]}>{speakerMatch[2]}</Text>
           </View>
         );
       } else {
@@ -765,6 +806,14 @@ export default function DetailScreen() {
       {recording?.transcript && (
         <View style={styles.bottomActionArea}>
           <TouchableOpacity
+            style={[styles.outlineButton, { flex: 1, borderColor: theme.primary, backgroundColor: theme.primary, ...Shadows.soft }]}
+            onPress={() => setChatVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Feather name="message-circle" size={18} color="#fff" style={{ marginRight: Spacing.sm }} />
+            <Text style={[styles.outlineButtonText, { color: '#fff' }]}>질문</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[styles.outlineButton, { flex: 1, borderColor: theme.border, backgroundColor: theme.surface, ...Shadows.soft }]}
             onPress={handleCopy}
             activeOpacity={0.7}
@@ -822,6 +871,60 @@ export default function DetailScreen() {
             </View>
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={chatVisible} animationType="slide" transparent onRequestClose={() => setChatVisible(false)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.chatOverlay}
+        >
+          <View style={[styles.chatSheet, { backgroundColor: theme.background }]}>
+            <View style={[styles.chatHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.chatTitle, { color: theme.text }]}>강의에게 질문</Text>
+              <TouchableOpacity onPress={() => setChatVisible(false)}>
+                <Feather name="x" size={22} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.chatList} contentContainerStyle={{ padding: Spacing.lg, gap: Spacing.md }}>
+              {chatMessages.length === 0 && (
+                <Text style={[styles.chatHint, { color: theme.textSecondary }]}>
+                  이 강의 내용에 대해 무엇이든 물어보세요.{'\n'}예) "핵심만 3줄로 정리해줘", "이 부분 쉽게 설명해줘"
+                </Text>
+              )}
+              {chatMessages.map((m, i) => (
+                <View
+                  key={`chat-${i}`}
+                  style={[
+                    styles.bubble,
+                    m.role === 'user'
+                      ? { alignSelf: 'flex-end', backgroundColor: theme.primary }
+                      : { alignSelf: 'flex-start', backgroundColor: theme.surface, borderColor: theme.border, borderWidth: 1 },
+                  ]}
+                >
+                  <Text style={[styles.bubbleText, { color: m.role === 'user' ? '#fff' : theme.text }]}>{m.content}</Text>
+                </View>
+              ))}
+              {chatLoading && <ActivityIndicator color={theme.primary} style={{ alignSelf: 'flex-start' }} />}
+            </ScrollView>
+            <View style={[styles.chatInputRow, { borderTopColor: theme.border, backgroundColor: theme.surface }]}>
+              <TextInput
+                style={[styles.chatInput, { color: theme.text, backgroundColor: theme.background, borderColor: theme.border }]}
+                value={chatInput}
+                onChangeText={setChatInput}
+                placeholder="질문 입력..."
+                placeholderTextColor={theme.textTertiary}
+                multiline
+              />
+              <TouchableOpacity
+                onPress={handleSendChat}
+                disabled={chatLoading || !chatInput.trim()}
+                style={[styles.chatSend, { backgroundColor: theme.primary, opacity: chatLoading || !chatInput.trim() ? 0.5 : 1 }]}
+              >
+                <Feather name="send" size={18} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Snackbar
@@ -1066,6 +1169,87 @@ const styles = StyleSheet.create({
   },
   scoreText: {
     ...Typography.bodyLarge,
+    fontWeight: '700',
+  },
+  chatOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  chatSheet: {
+    height: '80%',
+    borderTopLeftRadius: Radius.lg,
+    borderTopRightRadius: Radius.lg,
+    overflow: 'hidden',
+  },
+  chatHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+  },
+  chatTitle: {
+    ...Typography.titleMedium,
+    fontWeight: '700',
+  },
+  chatList: {
+    flex: 1,
+  },
+  chatHint: {
+    ...Typography.bodyMedium,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginTop: Spacing.xl,
+  },
+  bubble: {
+    maxWidth: '85%',
+    borderRadius: Radius.lg,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 10,
+  },
+  bubbleText: {
+    ...Typography.bodyMedium,
+    lineHeight: 21,
+  },
+  chatInputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderTopWidth: 1,
+  },
+  chatInput: {
+    flex: 1,
+    maxHeight: 120,
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 10,
+    ...Typography.bodyMedium,
+  },
+  chatSend: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  speakerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  speakerBadge: {
+    borderRadius: Radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginTop: 2,
+  },
+  speakerBadgeText: {
+    ...Typography.caption,
     fontWeight: '700',
   },
   outlineButtonText: {

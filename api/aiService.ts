@@ -218,7 +218,8 @@ function assertBackendUrl(url: string, context: string): void {
  */
 export async function transcribeAudio(
   audioUri: string,
-  recognitionLanguage: RecognitionLanguage = 'auto'
+  recognitionLanguage: RecognitionLanguage = 'auto',
+  diarize: boolean = false
 ): Promise<string> {
   const t0 = Date.now();
   const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
@@ -242,7 +243,8 @@ export async function transcribeAudio(
 
   const normalizedLanguage = normalizeRecognitionLanguage(recognitionLanguage);
   const languageQuery = buildLanguageQueryParam(normalizedLanguage);
-  const uploadUrl = `${baseUrl}/api/transcribe${languageQuery}`;
+  const diarizeQuery = diarize ? (languageQuery ? '&diarize=true' : '?diarize=true') : '';
+  const uploadUrl = `${baseUrl}/api/transcribe${languageQuery}${diarizeQuery}`;
   console.log(`[transcribeAudio] POST endpoint: ${uploadUrl}`);
   console.log(`[transcribeAudio] local file URI: ${audioUri}`);
 
@@ -603,4 +605,44 @@ export async function generateQuiz(
     throw new Error('퀴즈를 생성하지 못했습니다. 다시 시도해 주세요.');
   }
   return quiz as import('@/store/useRecordingStore').QuizQuestion[];
+}
+
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/**
+ * Lecture-grounded chat: ask questions answered from the transcript context,
+ * with general-knowledge supplementation clearly marked by the backend prompt.
+ */
+export async function chatWithLecture(
+  transcript: string,
+  messages: ChatMessage[],
+  language: string = 'ko'
+): Promise<string> {
+  const baseUrl = await getBackendUrl();
+  assertBackendUrl(baseUrl, 'chatWithLecture');
+  const headers = await buildHeaders();
+
+  if (!headers['x-app-key']) {
+    throw new Error('앱 시크릿 키가 설정되지 않았습니다. 설정 탭에서 입력해 주세요.');
+  }
+
+  let res;
+  try {
+    res = await axios.post(
+      `${baseUrl}/api/chat`,
+      { text: transcript, messages, language },
+      { headers, timeout: 90_000, ...ACCEPT_ALL }
+    );
+    assertStatus(res);
+  } catch (err: any) {
+    throw classifyNetworkError(err, 'chatWithLecture');
+  }
+
+  const reply = (res.data as { reply?: string }).reply;
+  if (!reply) throw new Error('답변을 받지 못했습니다. 다시 시도해 주세요.');
+  return reply;
 }

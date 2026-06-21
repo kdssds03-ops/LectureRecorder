@@ -10,12 +10,14 @@ export type TranslationLanguage = 'en' | 'ko' | 'ja' | 'zh' | 'es' | 'fr';
 interface SettingsState {
   recognitionLanguage: RecognitionLanguage;
   audioQuality: AudioQuality;
+  diarizationEnabled: boolean;
   summaryLanguage: SummaryLanguage;
   translationLanguage: TranslationLanguage;
   _hasHydrated: boolean;
   
   setRecognitionLanguage: (lang: RecognitionLanguage) => void;
   setAudioQuality: (quality: AudioQuality) => void;
+  setDiarizationEnabled: (value: boolean) => void;
   setSummaryLanguage: (lang: SummaryLanguage) => void;
   setTranslationLanguage: (lang: TranslationLanguage) => void;
   setHasHydrated: (state: boolean) => void;
@@ -26,12 +28,14 @@ export const useSettingsStore = create<SettingsState>()(
     (set, get) => ({
       recognitionLanguage: 'ko',
       audioQuality: 'high',
+      diarizationEnabled: false,
       summaryLanguage: 'ko',
       translationLanguage: 'en',
       _hasHydrated: false,
 
       setRecognitionLanguage: (lang) => set({ recognitionLanguage: lang }),
       setAudioQuality: (quality) => set({ audioQuality: quality }),
+      setDiarizationEnabled: (value) => set({ diarizationEnabled: value }),
       setSummaryLanguage: (lang) => set({ summaryLanguage: lang }),
       setTranslationLanguage: (lang) => set({ translationLanguage: lang }),
       setHasHydrated: (state) => set({ _hasHydrated: state }),

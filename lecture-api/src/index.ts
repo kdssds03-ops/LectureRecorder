@@ -101,7 +101,7 @@ app.get('/', (_req, res) => {
   res.json({ message: 'LectureRecorder API is running.' });
 });
 
-app.use(['/api/transcribe', '/api/summarize', '/api/translate', '/api/title', '/api/quiz'], apiLimiter);
+app.use(['/api/transcribe', '/api/summarize', '/api/translate', '/api/title', '/api/quiz', '/api/chat'], apiLimiter);
 app.use('/api/transcribe', transcribeRouter);
 app.use('/api/summarize', summarizeRouter);
 
@@ -321,6 +321,71 @@ app.post('/api/quiz', async (req, res) => {
     }
     console.error('[quiz] Error:', err.response?.data ?? err.message);
     res.status(500).json({ error: '퀴즈 생성에 실패했습니다.' });
+  }
+});
+
+// ── Chat route (lecture-grounded Q&A) ─────────────────────────────────────────
+// Answers questions using the lecture transcript as primary context, with
+// optional general-knowledge supplementation that is clearly marked.
+app.post('/api/chat', async (req, res) => {
+  const { text, messages, language } = req.body as {
+    text?: string;
+    messages?: { role: 'user' | 'assistant'; content: string }[];
+    language?: string;
+  };
+
+  if (!text || text.trim().length === 0) {
+    res.status(400).json({ error: 'Request body must include a non-empty "text" field.' });
+    return;
+  }
+  if (!Array.isArray(messages) || messages.length === 0) {
+    res.status(400).json({ error: 'Request body must include a non-empty "messages" array.' });
+    return;
+  }
+
+  const lang = language === 'en' ? 'English' : language === 'zh' ? '中文' : '한국어';
+  // Bound the transcript context to control token cost.
+  const context = text.slice(0, 40_000);
+  // Keep only the recent turns to stay within limits.
+  const history = messages
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+    .slice(-12)
+    .map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
+
+  const systemPrompt =
+    `You are a helpful study assistant for a recorded lecture. Answer in ${lang}. ` +
+    `Base your answers primarily on the LECTURE TRANSCRIPT below. ` +
+    `If the transcript does not contain the answer, you may supplement with general knowledge, ` +
+    `but clearly mark such parts (e.g. "강의에는 없지만, 일반적으로…"). ` +
+    `Be concise and accurate. Do not invent details the lecture did not cover.\n\n` +
+    `=== LECTURE TRANSCRIPT ===\n${context}\n=== END TRANSCRIPT ===`;
+
+  try {
+    const response = await axios.post(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'system', content: systemPrompt }, ...history],
+        temperature: 0.3,
+        max_tokens: 1000,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${config.openAiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 60_000,
+      }
+    );
+    const reply: string = String(response.data.choices[0].message.content ?? '').trim();
+    if (!reply) {
+      res.status(502).json({ error: '응답을 생성하지 못했습니다. 다시 시도해 주세요.' });
+      return;
+    }
+    res.json({ reply });
+  } catch (err: any) {
+    console.error('[chat] Error:', err.response?.data ?? err.message);
+    res.status(500).json({ error: '답변 생성에 실패했습니다.' });
   }
 });
 

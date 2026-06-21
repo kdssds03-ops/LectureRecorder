@@ -61,6 +61,7 @@ export default function SettingsScreen() {
   const {
     recognitionLanguage, setRecognitionLanguage,
     audioQuality, setAudioQuality,
+    diarizationEnabled, setDiarizationEnabled,
     summaryLanguage, setSummaryLanguage,
     translationLanguage, setTranslationLanguage,
     _hasHydrated,
@@ -142,6 +143,15 @@ export default function SettingsScreen() {
               value={audioQuality === 'high' ? '고음질' : '표준'}
               theme={theme}
               onPress={toggleQualityOption}
+            />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            <SettingRow
+              icon="users"
+              label="화자 구분"
+              theme={theme}
+              isSwitch
+              switchValue={diarizationEnabled}
+              onSwitchChange={setDiarizationEnabled}
             />
           </View>
 
