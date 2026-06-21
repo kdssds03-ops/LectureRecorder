@@ -4,13 +4,14 @@ import { Colors } from '@/constants/Colors';
 import { Radius, Shadows, Spacing, Typography } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useRecordingStore } from '@/store/useRecordingStore';
+import { useSubscriptionStore } from '@/store/useSubscriptionStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import * as Clipboard from 'expo-clipboard';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Href, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -84,6 +85,13 @@ export default function DetailScreen() {
   const updateRecording = useRecordingStore((state) => state.updateRecording);
   const fetchSummary = useRecordingStore((state) => state.fetchSummary);
   const fetchQuiz = useRecordingStore((state) => state.fetchQuiz);
+
+  // Free-tier gate: returns true if the action may proceed, else opens paywall.
+  const ensureCredit = useCallback((): boolean => {
+    if (useSubscriptionStore.getState().canUseAi()) return true;
+    router.push('/paywall' as Href);
+    return false;
+  }, [router]);
   const recognitionLanguage = useSettingsStore((state) => state.recognitionLanguage);
   const translationLanguage = useSettingsStore((state) => state.translationLanguage);
 
@@ -161,11 +169,13 @@ export default function DetailScreen() {
 
   const handleTranscribe = useCallback(async () => {
     if (!recording) return;
+    if (!ensureCredit()) return;
     setIsProcessing(true);
     setProcessingStatus('오디오 분석 중...');
     try {
       const result = await transcribeAudio(recording.uri, recognitionLanguage);
       updateRecording(recording.id, { transcript: result });
+      useSubscriptionStore.getState().consumeCredit();
       const { generateTitleFromText } = useRecordingStore.getState();
       generateTitleFromText(recording.id, result);
     } catch (error: any) {
@@ -174,52 +184,58 @@ export default function DetailScreen() {
       setIsProcessing(false);
       setProcessingStatus('');
     }
-  }, [recording, recognitionLanguage, updateRecording]);
+  }, [recording, recognitionLanguage, updateRecording, ensureCredit]);
 
   const handleSummarize = useCallback(async () => {
     if (!recording || !recording.transcript) {
       Alert.alert('알림', '먼저 음성을 텍스트로 변환해 주세요.');
       return;
     }
+    if (!ensureCredit()) return;
     setIsProcessing(true);
     setProcessingStatus('AI 요약 생성 중...');
     try {
       await fetchSummary(recording.id);
+      useSubscriptionStore.getState().consumeCredit();
     } catch (error: any) {
       Alert.alert('요약 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
     } finally {
       setIsProcessing(false);
       setProcessingStatus('');
     }
-  }, [recording, fetchSummary]);
+  }, [recording, fetchSummary, ensureCredit]);
 
   const handleTranslate = useCallback(async () => {
     if (!recording || !recording.transcript) {
       Alert.alert('알림', '먼저 음성을 텍스트로 변환해 주세요.');
       return;
     }
+    if (!ensureCredit()) return;
     setIsProcessing(true);
     setProcessingStatus('번역 중...');
     try {
       const result = await translateText(recording.transcript, translationLanguage);
       updateRecording(recording.id, { translation: result });
+      useSubscriptionStore.getState().consumeCredit();
     } catch (error: any) {
       Alert.alert('번역 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
     } finally {
       setIsProcessing(false);
       setProcessingStatus('');
     }
-  }, [recording, translationLanguage, updateRecording]);
+  }, [recording, translationLanguage, updateRecording, ensureCredit]);
 
   const handleQuiz = useCallback(async () => {
     if (!recording || !recording.transcript) {
       Alert.alert('알림', '먼저 음성을 텍스트로 변환해 주세요.');
       return;
     }
+    if (!ensureCredit()) return;
     setIsProcessing(true);
     setProcessingStatus('AI 퀴즈 생성 중...');
     try {
       await fetchQuiz(recording.id);
+      useSubscriptionStore.getState().consumeCredit();
       setQuizSelected({});
       setQuizSubmitted(false);
     } catch (error: any) {
@@ -228,7 +244,7 @@ export default function DetailScreen() {
       setIsProcessing(false);
       setProcessingStatus('');
     }
-  }, [recording, fetchQuiz]);
+  }, [recording, fetchQuiz, ensureCredit]);
 
   // Build a shareable Markdown document from everything we have for this recording.
   const buildExportMarkdown = (): string => {

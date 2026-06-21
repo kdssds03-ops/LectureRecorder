@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View, SafeAreaView, ScrollView, TouchableOpacity, TextInput, Alert, Linking, Platform, Switch, ActivityIndicator, KeyboardAvoidingView } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
-import { useRouter } from 'expo-router';
+import { Href, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { Spacing, Radius, Typography, Shadows } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { setAppSecret } from '@/api/aiService';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import { FREE_MONTHLY_CREDITS, useSubscriptionStore } from '@/store/useSubscriptionStore';
+import { restorePurchases } from '@/api/purchases';
 
 function SectionHeader({ title, theme }: { title: string; theme: any }) {
   return <Text style={[styles.sectionHeader, { color: theme.textSecondary }]}>{title}</Text>;
@@ -44,6 +46,17 @@ export default function SettingsScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
   const router = useRouter();
+  const isPremium = useSubscriptionStore((s) => s.isPremium);
+  const remaining = useSubscriptionStore((s) => s.getRemaining());
+
+  const handleRestore = async () => {
+    try {
+      const ok = await restorePurchases();
+      Alert.alert(ok ? '복원 완료' : '복원할 구매 없음', ok ? '프리미엄이 복원되었습니다.' : '복원할 구매 내역이 없습니다.');
+    } catch {
+      Alert.alert('복원 실패', '구매 복원 중 오류가 발생했습니다.');
+    }
+  };
 
   const {
     recognitionLanguage, setRecognitionLanguage,
@@ -149,6 +162,19 @@ export default function SettingsScreen() {
               theme={theme}
               onPress={() => toggleLanguageOption(translationLanguage, setTranslationLanguage)}
             />
+          </View>
+
+          <SectionHeader title="구독" theme={theme} />
+          <View style={[styles.sectionGroup, { backgroundColor: theme.surface, ...Shadows.soft }]}>
+            <SettingRow
+              icon="star"
+              label={isPremium ? '프리미엄 이용 중' : '프리미엄 구독'}
+              value={isPremium ? '무제한' : `이번 달 ${remaining}/${FREE_MONTHLY_CREDITS}회 남음`}
+              theme={theme}
+              onPress={() => router.push('/paywall' as Href)}
+            />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            <SettingRow icon="refresh-ccw" label="구매 복원" theme={theme} onPress={handleRestore} />
           </View>
 
           <SectionHeader title="정보 & 지원" theme={theme} />

@@ -10,6 +10,7 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/Colors';
 import AnimatedSplashScreen from '@/components/AnimatedSplashScreen';
+import { initPurchases } from '@/api/purchases';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -24,6 +25,7 @@ export default function RootLayout() {
     async function prepare() {
       try {
         // Pre-load fonts, make any API calls you need to do here
+        await initPurchases().catch(() => {});
         await new Promise(resolve => setTimeout(resolve, 500));
       } catch (e) {
         console.warn(e);
@@ -86,6 +88,14 @@ export default function RootLayout() {
             options={{
               headerShown: false,
               animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
+            name="paywall"
+            options={{
+              headerShown: false,
+              presentation: 'modal',
+              animation: 'slide_from_bottom',
             }}
           />
           <Stack.Screen

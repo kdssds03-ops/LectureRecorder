@@ -1,4 +1,5 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import axios from 'axios';
 import { config } from './config';
 import transcribeRouter from './routes/transcribe';
@@ -40,6 +41,19 @@ function validateEnv(): void {
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+// Mitigates abuse of the shared app key (the key ships inside the mobile app and
+// can be extracted). Caps how often a single IP can hit the AI endpoints so a
+// leaked key can't run up unbounded OpenAI / AssemblyAI cost.
+app.set('trust proxy', 1); // Railway sits behind a proxy; needed for correct IP
+const apiLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 120,                 // 120 AI requests per IP per hour
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.' },
+});
 
 // ── CORS (allow all origins for mobile app) ───────────────────────────────────
 app.use((req, res, next) => {
@@ -87,6 +101,7 @@ app.get('/', (_req, res) => {
   res.json({ message: 'LectureRecorder API is running.' });
 });
 
+app.use(['/api/transcribe', '/api/summarize', '/api/translate', '/api/title', '/api/quiz'], apiLimiter);
 app.use('/api/transcribe', transcribeRouter);
 app.use('/api/summarize', summarizeRouter);
 
