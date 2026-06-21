@@ -281,7 +281,7 @@ router.post('/', uploadSingle('audio'), async (req: Request, res: Response) => {
   }
 
   console.log(`[transcribe] POST / complete — elapsed=${elapsed()}, jobId=${jobId}`);
-  linkJob(jobId, deviceId);
+  await linkJob(jobId, deviceId);
   res.json({ jobId });
 });
 
@@ -376,7 +376,7 @@ router.post('/quick', uploadSingle('audio'), async (req: Request, res: Response)
         );
         if (pollRes.data.status === 'completed') {
           console.log(`[transcribe/quick] completed on poll #${i + 1} — total ${elapsed()}`);
-          addSeconds(deviceId, pollRes.data.audio_duration ?? 0);
+          await addSeconds(deviceId, pollRes.data.audio_duration ?? 0);
           res.json({ text: pollRes.data.text ?? '' });
           return;
         }
@@ -436,7 +436,7 @@ router.get('/:jobId', async (req: Request, res: Response) => {
       } else {
         transcript = data.text ?? '인식된 텍스트가 없습니다.';
       }
-      countJobOnce(jobId, data.audio_duration ?? 0);
+      await countJobOnce(jobId, data.audio_duration ?? 0);
       res.json({ status: 'completed', transcript });
     } else if (data.status === 'error') {
       console.error(`[transcribe] AssemblyAI error for jobId=${jobId}:`, data.error);

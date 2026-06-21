@@ -37,5 +37,15 @@ export const cloudSttProvider: SttProvider = {
  * (Could later read a feature flag / device capability check.)
  */
 export function getSttProvider(): SttProvider {
+  // On-device is opt-in via env flag. Lazy require keeps the native module out of
+  // the bundle (and out of Expo Go) unless explicitly enabled.
+  if (process.env.EXPO_PUBLIC_ONDEVICE_STT === '1') {
+    try {
+      const { onDeviceSttProvider } = require('@/api/onDeviceStt') as typeof import('@/api/onDeviceStt');
+      return onDeviceSttProvider;
+    } catch (e) {
+      console.warn('[stt] on-device provider unavailable, falling back to cloud:', e);
+    }
+  }
   return cloudSttProvider;
 }
