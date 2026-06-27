@@ -1,0 +1,26 @@
+# EAS Build upload ignore list.
+# When present, EAS uses THIS file instead of .gitignore to decide what to upload.
+
+# Dependencies & native/build output (regenerated on the build server)
+node_modules/
+android/
+ios/
+.expo/
+web-build/
+dist/
+
+# Local-only junk that must NOT be uploaded
+# (.expo etc. under OneDrive carry restrictive perms → EACCES during prebuild)
+.qa-temp/
+.agents/
+.vscode/
+para-memo/
+
+# Backend service — not part of the mobile app build
+lecture-api/
+
+# Env & logs (build env comes from eas.json "env")
+.env
+.env*.local
+*.log
+npm-debug.*

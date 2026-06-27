@@ -1,0 +1,29 @@
+# Render Blueprint — deploys the lecture-api backend.
+# How to use: render.com → New → Blueprint → connect this GitHub repo →
+# Render reads this file, creates the service. Then fill the secret env vars
+# (marked sync:false) in the dashboard and deploy.
+services:
+  - type: web
+    name: lecture-api
+    runtime: node
+    plan: free
+    rootDir: lecture-api
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # ── Secrets: set these in the Render dashboard (Environment tab) ──
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ASSEMBLYAI_API_KEY
+        sync: false
+      - key: APP_SECRET
+        sync: false
+      # Optional (leave unset to disable):
+      - key: REVENUECAT_SECRET_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
