@@ -11,7 +11,7 @@
         "simulator": true
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://lecturerecorder-production.up.railway.app"
+        "EXPO_PUBLIC_BACKEND_URL": "https://lecture-api-744h.onrender.com"
       }
     },
     "development-device": {
@@ -21,7 +21,7 @@
         "simulator": false
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://lecturerecorder-production.up.railway.app"
+        "EXPO_PUBLIC_BACKEND_URL": "https://lecture-api-744h.onrender.com"
       }
     },
     "preview": {
@@ -30,7 +30,7 @@
         "simulator": false
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://lecturerecorder-production.up.railway.app"
+        "EXPO_PUBLIC_BACKEND_URL": "https://lecture-api-744h.onrender.com"
       }
     },
     "production": {
@@ -42,7 +42,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://lecturerecorder-production.up.railway.app"
+        "EXPO_PUBLIC_BACKEND_URL": "https://lecture-api-744h.onrender.com"
       }
     }
   },

@@ -296,7 +296,7 @@ export default function DetailScreen() {
     }
 
     if (recording.translation) {
-      parts.push(`\n## 메모 / 번역\n\n${recording.translation}`);
+      parts.push(`\n## 번역\n\n${recording.translation}`);
     }
 
     if (recording.quiz?.length) {
@@ -544,6 +544,25 @@ export default function DetailScreen() {
     return <Text style={[styles.transcriptBody, { color: theme.text }]}>{String(recording.summary)}</Text>;
   };
 
+  const renderTranslation = () => {
+    if (!recording?.translation) return null;
+    const langMap: Record<string, string> = { en: '영어', ko: '한국어', ja: '일본어', zh: '중국어', es: '스페인어', fr: '프랑스어' };
+    const langLabel = langMap[translationLanguage] || '번역';
+    return (
+      <View style={styles.summaryContainer}>
+        <View style={styles.translationHeaderRow}>
+          <View style={[styles.langBadge, { backgroundColor: theme.primary + '15' }]}>
+            <Feather name="globe" size={14} color={theme.primary} />
+            <Text style={[styles.langBadgeText, { color: theme.primary }]}>{langLabel}로 번역</Text>
+          </View>
+        </View>
+        <View style={[styles.summaryCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Text style={[styles.translationText, { color: theme.text }]}>{recording.translation}</Text>
+        </View>
+      </View>
+    );
+  };
+
   const renderQuiz = () => {
     const quiz = recording?.quiz;
     if (!quiz || quiz.length === 0) return null;
@@ -672,7 +691,7 @@ export default function DetailScreen() {
                   { color: activeTab === tab ? theme.text : theme.textSecondary },
                 ]}
               >
-                {tab === 'transcript' ? '음성인식' : tab === 'summary' ? '요약' : tab === 'translation' ? '메모' : '퀴즈'}
+                {tab === 'transcript' ? '음성인식' : tab === 'summary' ? '요약' : tab === 'translation' ? '번역' : '퀴즈'}
               </Text>
             </TouchableOpacity>
           ))}
@@ -766,14 +785,14 @@ export default function DetailScreen() {
             )
           ) : activeTab === 'translation' ? (
             recording?.translation ? (
-              <Text style={[styles.transcriptBody, { color: theme.text }]}>{recording.translation}</Text>
+              renderTranslation()
             ) : (
               <View style={styles.emptyContentContainer}>
                 <Text style={[styles.emptyContentText, { color: theme.textSecondary }]}>
                   텍스트 변환 후 번역을 시작해보세요
                 </Text>
                 <TouchableOpacity style={[styles.actionButton, { backgroundColor: theme.primary, ...Shadows.soft }]} onPress={handleTranslate}>
-                  <Text style={styles.actionButtonText}>메모 작성 / 번역하기</Text>
+                  <Text style={styles.actionButtonText}>번역하기</Text>
                 </TouchableOpacity>
               </View>
             )
@@ -1243,6 +1262,27 @@ const styles = StyleSheet.create({
   speakerBadgeText: {
     ...Typography.caption,
     fontWeight: '700',
+  },
+  translationHeaderRow: {
+    flexDirection: 'row',
+    marginBottom: Spacing.md,
+  },
+  langBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.pill,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+  },
+  langBadgeText: {
+    ...Typography.caption,
+    fontWeight: '700',
+  },
+  translationText: {
+    ...Typography.bodyLarge,
+    fontWeight: '500',
+    lineHeight: 27,
   },
   outlineButtonText: {
     ...Typography.bodyMedium,
