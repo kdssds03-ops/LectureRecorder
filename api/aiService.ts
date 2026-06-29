@@ -368,6 +368,95 @@ export async function transcribeAudio(
 }
 
 /**
+ * Diarized transcription pass: uploads ALL chunk files, the backend merges them
+ * into one continuous file and runs a single speaker-labeled transcription so
+ * speaker numbering stays consistent across the whole lecture.
+ * Returns the speaker-labeled transcript string plus time-aligned segments
+ * (with `speaker`) for seekable, color-coded display.
+ */
+export async function transcribeWithSpeakers(
+  uris: string[],
+  recognitionLanguage: RecognitionLanguage = 'auto'
+): Promise<{ transcript: string; segments: import('@/store/useRecordingStore').TranscriptSegment[] }> {
+  if (!uris || uris.length === 0) return { transcript: '', segments: [] };
+
+  const baseUrl = await getBackendUrl();
+  assertBackendUrl(baseUrl, 'transcribeWithSpeakers');
+  const secret = await getAppSecret();
+  if (!secret) throw new Error('앱 시크릿 키가 설정되지 않았습니다. 설정 탭에서 입력해 주세요.');
+
+  const normalizedLanguage = normalizeRecognitionLanguage(recognitionLanguage);
+  const languageQuery = buildLanguageQueryParam(normalizedLanguage);
+
+  const formData = new FormData();
+  uris.forEach((uri, i) => {
+    formData.append('audio', { uri, type: 'audio/m4a', name: `chunk_${i}.m4a` } as unknown as Blob);
+  });
+  formData.append('language', normalizedLanguage);
+
+  let uploadRes;
+  try {
+    uploadRes = await axios.post(
+      `${baseUrl}/api/transcribe/diarize${languageQuery}`,
+      formData,
+      {
+        headers: {
+          'x-app-key': secret,
+          'x-device-id': await getDeviceId(),
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: 300_000,
+        ...ACCEPT_ALL,
+      }
+    );
+    assertStatus(uploadRes);
+  } catch (err: any) {
+    throw classifyNetworkError(err, 'transcribeWithSpeakers/upload');
+  }
+
+  const jobId: string = uploadRes.data?.jobId;
+  if (!jobId) throw new Error('화자 분리 작업 ID를 받지 못했습니다.');
+
+  const headers = await buildHeaders();
+  let delay = POLL_INITIAL_DELAY_MS;
+
+  for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
+    await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    delay = POLL_INTERVAL_MS;
+
+    let pollRes;
+    try {
+      pollRes = await axios.get(
+        `${baseUrl}/api/transcribe/${jobId}`,
+        { headers, timeout: 20_000, ...ACCEPT_ALL }
+      );
+      assertStatus(pollRes);
+    } catch {
+      continue; // transient poll error — retry
+    }
+
+    const { status, transcript, utterances, error } = pollRes.data as {
+      status: 'processing' | 'completed' | 'error';
+      transcript?: string;
+      utterances?: { speaker: string; text: string; start: number; end: number }[];
+      error?: string;
+    };
+
+    if (status === 'completed') {
+      const segments = Array.isArray(utterances)
+        ? utterances.map((u) => ({ startMs: u.start, endMs: u.end, text: u.text, speaker: u.speaker }))
+        : [];
+      return { transcript: transcript ?? '', segments };
+    }
+    if (status === 'error') {
+      throw new Error('화자 분리 전사 실패: ' + (error ?? '알 수 없는 오류'));
+    }
+  }
+
+  throw new Error('화자 분리 전사 시간이 초과되었습니다. 녹음이 너무 길거나 서버가 응답하지 않습니다.');
+}
+
+/**
  * Quick transcription for real-time updates (30s chunks).
  * Returns the text directly.
  * Polling timeout extended to 45s for reliability.
@@ -488,7 +577,8 @@ function normalizeTranscript(text: string): string {
 export async function summarizeText(
   text: string,
   lectureType: LectureType = 'general',
-  language: string = 'ko'
+  language: string = 'ko',
+  customInstruction: string = ''
 ): Promise<{ summary: any; suggestedName: string }> {
   const normalizedText = normalizeTranscript(text);
   const baseUrl = await getBackendUrl();
@@ -500,7 +590,7 @@ export async function summarizeText(
 
   const res = await axios.post(
     `${baseUrl}/api/summarize`,
-    { text: normalizedText, lectureType, language },
+    { text: normalizedText, lectureType, language, customInstruction },
     // Chunked path for long lectures can take several minutes on the backend;
     // 5 min gives enough headroom even for 60-min recordings.
     { headers, timeout: 300_000, ...ACCEPT_ALL }
@@ -629,6 +719,29 @@ export async function generateQuiz(
 }
 
 
+/**
+ * Fetch a short-lived AssemblyAI streaming token from our backend so the app can
+ * open the realtime transcription WebSocket directly (lowest latency).
+ */
+export async function getStreamToken(): Promise<string> {
+  const baseUrl = await getBackendUrl();
+  assertBackendUrl(baseUrl, 'getStreamToken');
+  const headers = await buildHeaders();
+  if (!headers['x-app-key']) {
+    throw new Error('앱 시크릿 키가 설정되지 않았습니다. 설정 탭에서 입력해 주세요.');
+  }
+  let res;
+  try {
+    res = await axios.post(`${baseUrl}/api/stream-token`, {}, { headers, timeout: 20_000, ...ACCEPT_ALL });
+    assertStatus(res);
+  } catch (err: any) {
+    throw classifyNetworkError(err, 'getStreamToken');
+  }
+  const token = (res.data as { token?: string }).token;
+  if (!token) throw new Error('스트리밍 토큰을 받지 못했습니다.');
+  return token;
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -666,4 +779,48 @@ export async function chatWithLecture(
   const reply = (res.data as { reply?: string }).reply;
   if (!reply) throw new Error('답변을 받지 못했습니다. 다시 시도해 주세요.');
   return reply;
+}
+
+/**
+ * Generate topic chapters from time-aligned transcript segments.
+ * Sends compact { startMs, text } segments → backend asks the LLM to group them
+ * into chapters, returning [{ title, startMs }] mapped back to audio positions.
+ */
+export async function generateChapters(
+  segments: import('@/store/useRecordingStore').TranscriptSegment[],
+  language: string = 'ko'
+): Promise<import('@/store/useRecordingStore').Chapter[]> {
+  const baseUrl = await getBackendUrl();
+  assertBackendUrl(baseUrl, 'generateChapters');
+  const headers = await buildHeaders();
+
+  if (!headers['x-app-key']) {
+    throw new Error('앱 시크릿 키가 설정되지 않았습니다. 설정 탭에서 입력해 주세요.');
+  }
+
+  // Send a compact representation to keep the payload small.
+  const compact = segments.map((s) => ({ startMs: Math.round(s.startMs), text: s.text }));
+
+  let res;
+  try {
+    res = await axios.post(
+      `${baseUrl}/api/chapters`,
+      { segments: compact, language },
+      { headers, timeout: 120_000, ...ACCEPT_ALL }
+    );
+    assertStatus(res);
+  } catch (err: any) {
+    throw classifyNetworkError(err, 'generateChapters');
+  }
+
+  const chapters = (res.data as { chapters?: any[] }).chapters;
+  if (!Array.isArray(chapters) || chapters.length === 0) {
+    throw new Error('챕터를 생성하지 못했습니다. 다시 시도해 주세요.');
+  }
+  // Sanitize + clamp to valid segment time range.
+  const maxMs = segments.length ? segments[segments.length - 1].startMs : 0;
+  return chapters
+    .filter((c) => c && typeof c.title === 'string' && typeof c.startMs === 'number')
+    .map((c) => ({ title: String(c.title).slice(0, 60), startMs: Math.max(0, Math.min(c.startMs, maxMs)) }))
+    .sort((a, b) => a.startMs - b.startMs);
 }

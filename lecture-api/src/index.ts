@@ -101,7 +101,7 @@ app.get('/', (_req, res) => {
   res.json({ message: 'LectureRecorder API is running.' });
 });
 
-app.use(['/api/transcribe', '/api/summarize', '/api/translate', '/api/title', '/api/quiz', '/api/chat'], apiLimiter);
+app.use(['/api/transcribe', '/api/summarize', '/api/translate', '/api/title', '/api/quiz', '/api/chat', '/api/chapters', '/api/stream-token'], apiLimiter);
 app.use('/api/transcribe', transcribeRouter);
 app.use('/api/summarize', summarizeRouter);
 
@@ -386,6 +386,123 @@ app.post('/api/chat', async (req, res) => {
   } catch (err: any) {
     console.error('[chat] Error:', err.response?.data ?? err.message);
     res.status(500).json({ error: '답변 생성에 실패했습니다.' });
+  }
+});
+
+// ── Chapter generation route (topic segmentation) ─────────────────────────────
+// Given time-aligned transcript segments, groups them into topical chapters and
+// returns [{ title, startMs }] mapped back to audio positions for tap-to-jump.
+app.post('/api/chapters', async (req, res) => {
+  const { segments, language } = req.body as {
+    segments?: { startMs?: number; text?: string }[];
+    language?: string;
+  };
+
+  if (!Array.isArray(segments) || segments.length === 0) {
+    res.status(400).json({ error: 'Request body must include a non-empty "segments" array.' });
+    return;
+  }
+
+  const lang = language === 'en' ? 'English' : language === 'zh' ? '中文' : '한국어';
+
+  // Build a compact, timestamped transcript. Bound total size for cost control.
+  const MAX_CHARS = 28_000;
+  const valid = segments.filter(
+    (s) => s && typeof s.startMs === 'number' && typeof s.text === 'string' && s.text.trim()
+  );
+  if (valid.length === 0) {
+    res.status(400).json({ error: 'No valid segments provided.' });
+    return;
+  }
+  let acc = 0;
+  const lines: string[] = [];
+  for (const s of valid) {
+    const line = `${Math.round(s.startMs as number)}\t${(s.text as string).replace(/\s+/g, ' ').trim()}`;
+    if (acc + line.length > MAX_CHARS) break;
+    lines.push(line);
+    acc += line.length;
+  }
+  const firstStart = Math.round(valid[0].startMs as number);
+
+  const systemPrompt =
+    `You divide a lecture into topical chapters for easy navigation. ` +
+    `You are given transcript segments, one per line, in the form "startMs<TAB>text". ` +
+    `Group consecutive segments into 3 to 8 coherent chapters by topic. ` +
+    `Each chapter's startMs MUST be exactly one of the provided startMs values. ` +
+    `The first chapter MUST start at ${firstStart}. Titles must be in ${lang}, concise (max 24 characters), ` +
+    `descriptive of that section's topic. Output ONLY this JSON object:\n` +
+    `{ "chapters": [ { "title": "...", "startMs": 0 } ] }`;
+
+  try {
+    const response = await axios.post(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: lines.join('\n') },
+        ],
+        temperature: 0.3,
+        max_tokens: 900,
+        response_format: { type: 'json_object' },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${config.openAiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 90_000,
+      }
+    );
+
+    const raw: string = response.data.choices[0].message.content;
+    const parsed = JSON.parse(raw);
+    const rawChapters: any[] = Array.isArray(parsed.chapters) ? parsed.chapters : [];
+
+    const chapters = rawChapters
+      .map((c: any) => ({
+        title: String(c.title ?? '').trim().slice(0, 40),
+        startMs: Number(c.startMs),
+      }))
+      .filter((c) => c.title && Number.isFinite(c.startMs))
+      .sort((a, b) => a.startMs - b.startMs);
+
+    if (chapters.length === 0) {
+      res.status(502).json({ error: 'Chapter model returned no valid chapters. Please retry.' });
+      return;
+    }
+
+    res.json({ chapters });
+  } catch (err: any) {
+    if (err instanceof SyntaxError) {
+      console.error('[chapters] JSON parse failure from GPT response');
+      res.status(500).json({ error: 'AI 응답 파싱에 실패했습니다. 다시 시도해 주세요.' });
+      return;
+    }
+    console.error('[chapters] Error:', err.response?.data ?? err.message);
+    res.status(500).json({ error: '챕터 생성에 실패했습니다.' });
+  }
+});
+
+// ── Streaming token route (real-time diarized transcription) ──────────────────
+// Mints a short-lived AssemblyAI streaming token so the app can open the realtime
+// WebSocket directly (lowest latency) without ever shipping the API key.
+app.post('/api/stream-token', async (_req, res) => {
+  try {
+    const r = await axios.get('https://streaming.assemblyai.com/v3/token', {
+      params: { expires_in_seconds: 480, max_session_duration_seconds: 10800 },
+      headers: { Authorization: config.assemblyAiKey },
+      timeout: 15_000,
+    });
+    const token = r.data?.token;
+    if (!token) {
+      res.status(502).json({ error: '스트리밍 토큰을 받지 못했습니다.' });
+      return;
+    }
+    res.json({ token });
+  } catch (err: any) {
+    console.error('[stream-token] error:', err.response?.data ?? err.message);
+    res.status(502).json({ error: '스트리밍 토큰 발급에 실패했습니다.' });
   }
 });
 

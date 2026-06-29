@@ -73,17 +73,39 @@ export interface QuizQuestion {
   explanation: string;
 }
 
+/** A time-aligned transcript segment, enabling tap-to-seek playback. */
+export interface TranscriptSegment {
+  startMs: number; // segment start time within the recording (ms)
+  endMs: number;   // segment end time within the recording (ms)
+  text: string;
+  speaker?: string; // speaker label (e.g. "A") when diarization was applied
+}
+
+/** An AI-generated chapter marker, enabling tap-to-jump topic navigation. */
+export interface Chapter {
+  title: string;
+  startMs: number;
+}
+
 export interface RecordingMeta {
   id: string;
   name: string;
   titleSource?: 'default' | 'ai' | 'user';
   uri: string;
   chunkUris?: string[];
+  chunkDurations?: number[]; // ms duration of each chunk, aligned 1:1 with chunkUris (for gapless playlist playback + seek)
   duration: number; // in milliseconds
   createdAt: number;
   folderId: string | null;  // which folder this recording belongs to
   lectureType?: LectureType;
   transcript?: string;
+  segments?: TranscriptSegment[]; // time-aligned transcript for tap-to-seek
+  highlights?: number[];          // bookmark positions in ms, marked while recording
+  source?: 'recording' | 'import'; // how this entry was created
+  isFavorite?: boolean;           // starred by the user
+  tags?: string[];                // user-defined tags for filtering
+  chapters?: Chapter[];           // AI-generated topic chapters
+  isChaptering?: boolean;
   summary?: string | StructuredSummary;
   translation?: string;
   isSummarizing?: boolean;
@@ -97,9 +119,12 @@ interface RecordingStore {
   removeRecording: (id: string) => Promise<void>;
   updateRecording: (id: string, data: Partial<RecordingMeta>) => void;
   moveToFolder: (recordingId: string, folderId: string | null) => void;
+  toggleFavorite: (id: string) => void;
+  setTags: (id: string, tags: string[]) => void;
   loadRecordings: () => Promise<void>;
   fetchSummary: (recordingId: string) => Promise<void>;
   fetchQuiz: (recordingId: string) => Promise<void>;
+  fetchChapters: (recordingId: string) => Promise<void>;
   generateTitleFromText: (recordingId: string, text: string) => Promise<void>;
   _hasHydrated: boolean;
 }
@@ -117,14 +142,21 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
   removeRecording: async (id) => {
     const target = get().recordings.find((r) => r.id === id);
 
-    if (target?.uri) {
-      try {
-        const info = await FileSystem.getInfoAsync(target.uri);
-        if (info.exists) {
-          await FileSystem.deleteAsync(target.uri, { idempotent: true });
+    // Delete every audio file this recording owns: the root uri plus all chunk
+    // files. Previously only `uri` (the first chunk) was removed, leaking the rest.
+    if (target) {
+      const urisToDelete = Array.from(
+        new Set([target.uri, ...(target.chunkUris ?? [])].filter(Boolean))
+      );
+      for (const uri of urisToDelete) {
+        try {
+          const info = await FileSystem.getInfoAsync(uri);
+          if (info.exists) {
+            await FileSystem.deleteAsync(uri, { idempotent: true });
+          }
+        } catch (err) {
+          console.warn(`[store] Could not delete audio file ${uri} for recording ${id}:`, err);
         }
-      } catch (err) {
-        console.warn(`[store] Could not delete audio file for recording ${id}:`, err);
       }
     }
 
@@ -143,6 +175,21 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
     const updated = get().recordings.map((r) =>
       r.id === recordingId ? { ...r, folderId } : r
     );
+    set({ recordings: updated });
+    AsyncStorage.setItem('recordings', JSON.stringify(updated));
+  },
+
+  toggleFavorite: (id) => {
+    const updated = get().recordings.map((r) =>
+      r.id === id ? { ...r, isFavorite: !r.isFavorite } : r
+    );
+    set({ recordings: updated });
+    AsyncStorage.setItem('recordings', JSON.stringify(updated));
+  },
+
+  setTags: (id, tags) => {
+    const cleaned = Array.from(new Set(tags.map((t) => t.trim()).filter(Boolean))).slice(0, 12);
+    const updated = get().recordings.map((r) => (r.id === id ? { ...r, tags: cleaned } : r));
     set({ recordings: updated });
     AsyncStorage.setItem('recordings', JSON.stringify(updated));
   },
@@ -203,11 +250,14 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
 
     try {
       const { summarizeText } = require('@/api/aiService');
-      const summaryLanguage = useSettingsStore.getState().summaryLanguage;
+      const settings = useSettingsStore.getState();
+      const lectureType = recording.lectureType || 'general';
+      const customInstruction = settings.summaryTemplates?.[lectureType] || '';
       const { summary, suggestedName } = await summarizeText(
         recording.transcript,
-        recording.lectureType || 'general',
-        summaryLanguage
+        lectureType,
+        settings.summaryLanguage,
+        customInstruction
       );
 
       const updates: Partial<RecordingMeta> = {
@@ -247,6 +297,29 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
       updateRecording(recordingId, { quiz, isQuizzing: false });
     } catch (error) {
       updateRecording(recordingId, { isQuizzing: false });
+      throw error;
+    }
+  },
+
+  fetchChapters: async (recordingId: string) => {
+    const { recordings, updateRecording } = get();
+    const recording = recordings.find(r => r.id === recordingId);
+    if (!recording) return;
+
+    // Chapters need time-aligned segments to map topics back to audio positions.
+    if (!recording.segments || recording.segments.length === 0) {
+      throw new Error('NO_SEGMENTS');
+    }
+
+    updateRecording(recordingId, { isChaptering: true });
+
+    try {
+      const { generateChapters } = require('@/api/aiService');
+      const summaryLanguage = useSettingsStore.getState().summaryLanguage;
+      const chapters = await generateChapters(recording.segments, summaryLanguage);
+      updateRecording(recordingId, { chapters, isChaptering: false });
+    } catch (error) {
+      updateRecording(recordingId, { isChaptering: false });
       throw error;
     }
   },

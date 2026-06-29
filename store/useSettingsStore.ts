@@ -13,13 +13,16 @@ interface SettingsState {
   diarizationEnabled: boolean;
   summaryLanguage: SummaryLanguage;
   translationLanguage: TranslationLanguage;
+  // User-editable extra summary instructions, keyed by lecture type ('general', 'math', …).
+  summaryTemplates: Record<string, string>;
   _hasHydrated: boolean;
-  
+
   setRecognitionLanguage: (lang: RecognitionLanguage) => void;
   setAudioQuality: (quality: AudioQuality) => void;
   setDiarizationEnabled: (value: boolean) => void;
   setSummaryLanguage: (lang: SummaryLanguage) => void;
   setTranslationLanguage: (lang: TranslationLanguage) => void;
+  setSummaryTemplate: (lectureType: string, instruction: string) => void;
   setHasHydrated: (state: boolean) => void;
 }
 
@@ -31,6 +34,7 @@ export const useSettingsStore = create<SettingsState>()(
       diarizationEnabled: false,
       summaryLanguage: 'ko',
       translationLanguage: 'en',
+      summaryTemplates: {},
       _hasHydrated: false,
 
       setRecognitionLanguage: (lang) => set({ recognitionLanguage: lang }),
@@ -38,6 +42,8 @@ export const useSettingsStore = create<SettingsState>()(
       setDiarizationEnabled: (value) => set({ diarizationEnabled: value }),
       setSummaryLanguage: (lang) => set({ summaryLanguage: lang }),
       setTranslationLanguage: (lang) => set({ translationLanguage: lang }),
+      setSummaryTemplate: (lectureType, instruction) =>
+        set((s) => ({ summaryTemplates: { ...s.summaryTemplates, [lectureType]: instruction } })),
       setHasHydrated: (state) => set({ _hasHydrated: state }),
     }),
     {

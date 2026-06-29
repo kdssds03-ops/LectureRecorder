@@ -4,6 +4,9 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useFolderStore } from '@/store/useFolderStore';
 import { useRecordingStore } from '@/store/useRecordingStore';
 import { Feather, Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Audio } from 'expo-av';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -30,13 +33,14 @@ export default function HomeScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
 
-  const { recordings, loadRecordings, removeRecording: deleteRecording } = useRecordingStore();
+  const { recordings, loadRecordings, removeRecording: deleteRecording, addRecording, toggleFavorite } = useRecordingStore();
   const { folders, addFolder, deleteFolder, expandedFolders, toggleFolder } = useFolderStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [isNewFolderModalVisible, setIsNewFolderModalVisible] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
 
   useEffect(() => {
     loadRecordings();
@@ -44,11 +48,18 @@ export default function HomeScreen() {
 
   const filteredRecordings = useMemo(() => {
     if (!searchQuery.trim()) return recordings;
+    const q = searchQuery.toLowerCase();
     return recordings.filter((r) =>
-      r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (r.transcript && r.transcript.toLowerCase().includes(searchQuery.toLowerCase()))
+      r.name.toLowerCase().includes(q) ||
+      (r.transcript && r.transcript.toLowerCase().includes(q)) ||
+      (r.tags && r.tags.some((t) => t.toLowerCase().includes(q)))
     );
   }, [recordings, searchQuery]);
+
+  const favoriteRecordings = useMemo(
+    () => filteredRecordings.filter((r) => r.isFavorite),
+    [filteredRecordings]
+  );
 
   const formatDate = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -65,9 +76,67 @@ export default function HomeScreen() {
     }
   };
 
-  const renderRecordingItem = (item: any) => (
+  // Import an existing audio file from the device and route to its detail view,
+  // where the user can run transcription / summary just like a recording.
+  const handleImport = async () => {
+    if (isImporting) return;
+    setIsImporting(true);
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: 'audio/*',
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (res.canceled || !res.assets || res.assets.length === 0) return;
+
+      const asset = res.assets[0];
+      const id = Date.now().toString();
+      const ext = (asset.name?.split('.').pop() || 'm4a').toLowerCase();
+      let finalUri = asset.uri;
+      try {
+        const dest = `${FileSystem.documentDirectory}import_${id}.${ext}`;
+        await FileSystem.copyAsync({ from: asset.uri, to: dest });
+        finalUri = dest;
+      } catch (copyErr) {
+        console.warn('[handleImport] copy failed, using original uri:', copyErr);
+      }
+
+      // Measure duration so the player + usage metering work correctly.
+      let durationMs = 0;
+      try {
+        const { sound } = await Audio.Sound.createAsync({ uri: finalUri }, { shouldPlay: false });
+        const status = await sound.getStatusAsync();
+        if (status.isLoaded) durationMs = status.durationMillis ?? 0;
+        await sound.unloadAsync();
+      } catch (durErr) {
+        console.warn('[handleImport] duration probe failed:', durErr);
+      }
+
+      const baseName = asset.name ? asset.name.replace(/\.[^/.]+$/, '') : `가져온 오디오`;
+      addRecording({
+        id,
+        name: baseName,
+        titleSource: 'default',
+        uri: finalUri,
+        duration: durationMs,
+        createdAt: Date.now(),
+        folderId: null,
+        lectureType: 'general',
+        transcript: '',
+        source: 'import',
+      });
+      router.push({ pathname: '/detail/[id]', params: { id } });
+    } catch (err) {
+      console.warn('[handleImport] failed:', err);
+      Alert.alert('가져오기 실패', '오디오 파일을 불러올 수 없습니다. 다시 시도해 주세요.');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const renderRecordingItem = (item: any, keyPrefix = '') => (
     <TouchableOpacity
-      key={item.id}
+      key={`${keyPrefix}${item.id}`}
       style={styles.recordingItem}
       onPress={() => router.push({ pathname: '/detail/[id]', params: { id: item.id } })}
       onLongPress={() => {
@@ -89,7 +158,27 @@ export default function HomeScreen() {
         <Text style={[styles.recordingName, { color: theme.text }]} numberOfLines={1}>
           {item.name}
         </Text>
+        {item.tags && item.tags.length > 0 && (
+          <View style={styles.tagRow}>
+            {item.tags.slice(0, 3).map((tag: string) => (
+              <View key={tag} style={[styles.tagPill, { backgroundColor: theme.unselectedChip }]}>
+                <Text style={[styles.tagPillText, { color: theme.textSecondary }]} numberOfLines={1}>#{tag}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
+      <TouchableOpacity
+        onPress={() => toggleFavorite(item.id)}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        style={styles.starButton}
+      >
+        <MaterialIcons
+          name={item.isFavorite ? 'star' : 'star-border'}
+          size={20}
+          color={item.isFavorite ? theme.accent : theme.textTertiary}
+        />
+      </TouchableOpacity>
       <Text style={[styles.recordingDate, { color: theme.textTertiary }]}>
         {formatDate(item.createdAt)}
       </Text>
@@ -144,7 +233,7 @@ export default function HomeScreen() {
         {isExpanded && (
           <View style={styles.folderContent}>
             {folderRecordings.length > 0 ? (
-              folderRecordings.map(renderRecordingItem)
+              folderRecordings.map((r) => renderRecordingItem(r))
             ) : (
               <Text style={[styles.emptyFolderText, { color: theme.textTertiary }]}>
                 이 폴더에 기록이 없습니다.
@@ -164,7 +253,10 @@ export default function HomeScreen() {
           <TouchableOpacity onPress={() => router.push('/record')} style={styles.actionPillButton}>
             <Feather name="file-plus" size={20} color={theme.text} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleNewFolder} style={styles.actionPillButton}>
+          <TouchableOpacity onPress={handleImport} disabled={isImporting} style={styles.actionPillButton}>
+            <Feather name="upload" size={20} color={isImporting ? theme.textTertiary : theme.text} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setIsNewFolderModalVisible(true)} style={styles.actionPillButton}>
             <Feather name="folder-plus" size={20} color={theme.text} />
           </TouchableOpacity>
           <TouchableOpacity onPress={() => router.push('/settings')} style={styles.actionPillButton}>
@@ -199,6 +291,26 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.listContent}>
+          {/* Favorites — pinned at top, always expanded */}
+          {favoriteRecordings.length > 0 && (
+            <View style={styles.folderContainer}>
+              <View style={styles.folderHeader}>
+                <View style={styles.folderTitleRow}>
+                  <View style={[styles.folderIcon, { backgroundColor: theme.accent }]}>
+                    <MaterialIcons name="star" size={16} color={theme.background} />
+                  </View>
+                  <Text style={[styles.folderName, { color: theme.text }]}>즐겨찾기</Text>
+                </View>
+                <View style={[styles.countBadge, { backgroundColor: theme.accent }]}>
+                  <Text style={styles.countText}>{favoriteRecordings.length}</Text>
+                </View>
+              </View>
+              <View style={styles.folderContent}>
+                {favoriteRecordings.map((r) => renderRecordingItem(r, 'fav-'))}
+              </View>
+            </View>
+          )}
+
           {/* Uncategorized recordings first (Default Notes) */}
           {renderFolderSection('uncategorized', '기본 노트')}
 
@@ -393,6 +505,27 @@ const styles = StyleSheet.create({
   recordingName: {
     ...Typography.bodyMedium,
     fontWeight: '500',
+  },
+  tagRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 4,
+  },
+  tagPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+    maxWidth: 120,
+  },
+  tagPillText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  starButton: {
+    paddingHorizontal: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   recordingDate: {
     fontSize: 13,

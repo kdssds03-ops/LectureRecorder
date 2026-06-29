@@ -3,10 +3,39 @@ import multer from 'multer';
 import axios from 'axios';
 import fs from 'fs';
 import os from 'os';
+import path from 'path';
+import { spawn } from 'child_process';
+import ffmpegPath from 'ffmpeg-static';
 import { config } from '../config';
 import { enforce, linkJob, countJobOnce, addSeconds } from '../usage';
 
 const router = Router();
+
+/**
+ * Concatenate multiple audio chunk files into a single .m4a using ffmpeg.
+ * Re-encodes to AAC for container-safe concatenation across chunk boundaries.
+ */
+function concatToM4a(inputPaths: string[], outPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!ffmpegPath) {
+      reject(new Error('ffmpeg binary not available'));
+      return;
+    }
+    const listPath = `${outPath}.txt`;
+    const listContent = inputPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+    fs.writeFileSync(listPath, listContent);
+    const args = ['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c:a', 'aac', '-b:a', '128k', outPath];
+    const proc = spawn(ffmpegPath, args);
+    let stderr = '';
+    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      fs.unlink(listPath, () => {});
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg exited ${code}: ${stderr.slice(-500)}`));
+    });
+  });
+}
 
 function deviceIdOf(req: Request): string {
   const h = req.headers['x-device-id'];
@@ -79,6 +108,22 @@ function uploadSingle(fieldName: string) {
         phase: 'upload_validation',
         detail: err.message ?? String(err),
       });
+    });
+  };
+}
+
+/** Multipart wrapper for multiple files under one field, with clean JSON errors. */
+function uploadArray(fieldName: string, maxCount: number) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const mw = upload.array(fieldName, maxCount);
+    mw(req, res, (err: any) => {
+      if (!err) return next();
+      if (err instanceof multer.MulterError) {
+        const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+        res.status(status).json({ error: `업로드 오류: ${err.message}`, code: err.code, phase: 'upload_validation' });
+        return;
+      }
+      res.status(400).json({ error: '잘못된 multipart 요청입니다.', detail: err.message ?? String(err) });
     });
   };
 }
@@ -409,6 +454,102 @@ router.post('/quick', uploadSingle('audio'), async (req: Request, res: Response)
 });
 
 /**
+ * POST /api/transcribe/diarize
+ * Accepts the recording's chunk files (field "audio", possibly many), merges them
+ * into one continuous file with ffmpeg, then runs a single AssemblyAI transcription
+ * with speaker_labels so speaker numbering stays consistent across the whole lecture.
+ * Returns { jobId }; poll GET /:jobId for the diarized transcript + utterances.
+ */
+router.post('/diarize', uploadArray('audio', 400), async (req: Request, res: Response) => {
+  const t0 = Date.now();
+  const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
+
+  const files = (req.files as Express.Multer.File[]) || [];
+  if (files.length === 0) {
+    res.status(400).json({ error: 'No audio files provided. Use field name "audio".', phase: 'upload_validation' });
+    return;
+  }
+
+  const deviceId = deviceIdOf(req);
+  const gate = await enforce(deviceId);
+  if (!gate.allowed) {
+    files.forEach((f) => cleanupTempFile(f.path));
+    res.status(402).json({ error: '이번 달 무료 사용량을 모두 사용했습니다. 프리미엄으로 업그레이드해 주세요.', reason: gate.reason });
+    return;
+  }
+
+  const recognitionLanguage = resolveRecognitionLanguage(req);
+  const useLanguageDetection = recognitionLanguage === 'auto';
+  console.log(`[transcribe/diarize] ${files.length} chunk(s) received`);
+
+  // Step 1: merge chunks (single file passes through untouched).
+  let mergedPath = files[0].path;
+  let createdMerged = false;
+  if (files.length > 1) {
+    mergedPath = path.join(os.tmpdir(), `merged-${Date.now()}.m4a`);
+    createdMerged = true;
+    try {
+      await concatToM4a(files.map((f) => f.path), mergedPath);
+      console.log(`[transcribe/diarize] merged ${files.length} chunks — elapsed=${elapsed()}`);
+    } catch (mergeErr: any) {
+      files.forEach((f) => cleanupTempFile(f.path));
+      cleanupTempFile(mergedPath);
+      console.error(`[transcribe/diarize] merge failed: ${mergeErr.message}`);
+      res.status(500).json({ error: '오디오 병합에 실패했습니다.', phase: 'merge', detail: String(mergeErr.message).slice(0, 300) });
+      return;
+    }
+  }
+
+  // Step 2: upload merged file to AssemblyAI.
+  let audioUrl: string;
+  try {
+    const fileStream = fs.createReadStream(mergedPath);
+    const uploadRes = await axios.post('https://api.assemblyai.com/v2/upload', fileStream, {
+      headers: { authorization: config.assemblyAiKey, 'Content-Type': 'application/octet-stream', 'Transfer-Encoding': 'chunked' },
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+      timeout: 600_000,
+    });
+    audioUrl = uploadRes.data.upload_url;
+  } catch (uploadErr: any) {
+    files.forEach((f) => cleanupTempFile(f.path));
+    if (createdMerged) cleanupTempFile(mergedPath);
+    console.error(`[transcribe/diarize] upload failed: ${uploadErr.message}`);
+    res.status(502).json({ error: 'AssemblyAI 업로드에 실패했습니다.', phase: 'assemblyai_upload' });
+    return;
+  }
+
+  files.forEach((f) => cleanupTempFile(f.path));
+  if (createdMerged) cleanupTempFile(mergedPath);
+
+  // Step 3: create diarized transcription job.
+  let jobId: string;
+  try {
+    const jobBody: Record<string, unknown> = {
+      audio_url: audioUrl,
+      speech_models: ['universal-3-pro', 'universal-2'],
+      speaker_labels: true,
+      ...(useLanguageDetection
+        ? { language_detection: true }
+        : { language_detection: false, language_code: recognitionLanguage }),
+    };
+    const transcriptRes = await axios.post('https://api.assemblyai.com/v2/transcript', jobBody, {
+      headers: { authorization: config.assemblyAiKey },
+      timeout: 15_000,
+    });
+    jobId = transcriptRes.data.id;
+  } catch (jobErr: any) {
+    console.error(`[transcribe/diarize] job create failed: ${jobErr.response?.data ?? jobErr.message}`);
+    res.status(502).json({ error: '음성 인식 작업 생성에 실패했습니다.', phase: 'assemblyai_job_create' });
+    return;
+  }
+
+  await linkJob(jobId, deviceId);
+  console.log(`[transcribe/diarize] job created ${jobId} — elapsed=${elapsed()}`);
+  res.json({ jobId });
+});
+
+/**
  * GET /api/transcribe/:jobId
  * Polls AssemblyAI for the transcription result.
  */
@@ -429,15 +570,23 @@ router.get('/:jobId', async (req: Request, res: Response) => {
 
     if (data.status === 'completed') {
       let transcript: string;
+      let utterances: { speaker: string; text: string; start: number; end: number }[] | undefined;
       if (data.utterances && data.utterances.length > 0) {
         transcript = data.utterances
           .map((u: { speaker: string; text: string }) => `[화자 ${u.speaker}] ${u.text}`)
           .join('\n\n');
+        // Include timestamps so the app can build seekable, speaker-labeled segments.
+        utterances = data.utterances.map((u: { speaker: string; text: string; start: number; end: number }) => ({
+          speaker: u.speaker,
+          text: u.text,
+          start: u.start,
+          end: u.end,
+        }));
       } else {
         transcript = data.text ?? '인식된 텍스트가 없습니다.';
       }
       await countJobOnce(jobId, data.audio_duration ?? 0);
-      res.json({ status: 'completed', transcript });
+      res.json({ status: 'completed', transcript, utterances });
     } else if (data.status === 'error') {
       console.error(`[transcribe] AssemblyAI error for jobId=${jobId}:`, data.error);
       res.json({ status: 'error', error: data.error ?? '알 수 없는 오류' });

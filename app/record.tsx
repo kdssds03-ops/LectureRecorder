@@ -18,9 +18,10 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
+import * as Haptics from 'expo-haptics';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useRecordingStore, RecordingMeta, LectureType, LECTURE_TYPE_LABELS, LECTURE_TYPE_ICONS } from '@/store/useRecordingStore';
-import { quickTranscribe, summarizeText, translateText } from '@/api/aiService';
+import { quickTranscribe, summarizeText, transcribeWithSpeakers, translateText } from '@/api/aiService';
 import { useSubscriptionStore } from '@/store/useSubscriptionStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { Colors } from '@/constants/Colors';
@@ -83,8 +84,8 @@ async function validateAudioFile(uri: string): Promise<{ ok: boolean; size: numb
 
 interface TranscriptChunk {
   index: number;          // 0-based chunk index
-  startSec: number;       // start time in seconds
-  endSec: number;         // end time in seconds (approx)
+  startMs: number;        // start time within recording (ms, real elapsed)
+  endMs: number;          // end time within recording (ms, real elapsed)
   text: string;
   isPending: boolean;     // true while being transcribed
 }
@@ -119,7 +120,8 @@ interface QueuedChunk {
   chunkId: string;
   chunkIndex: number;
   uri: string;
-  startSec: number;
+  startMs: number;
+  endMs: number;
   createdAt: number;
 }
 
@@ -142,8 +144,20 @@ export default function RecordScreen() {
   const isRecordingRef = useRef(false);
   // Guard: set to true during stopRecording to prevent cycleChunk from starting a new recording
   const isStoppingRef = useRef(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const isPausedRef = useRef(false);
   const [duration, setDuration] = useState(0);
   const durationRef = useRef(0);
+
+  // ── Highlights / bookmarks (captured live during recording) ───────────────
+  const highlightsRef = useRef<number[]>([]);
+  const [highlightCount, setHighlightCount] = useState(0);
+
+  // Real start time (ms) of the chunk currently being recorded — gives accurate
+  // segment timestamps that stay correct even across pause/resume.
+  const chunkStartMsRef = useRef(0);
+  // Per-chunk audio durations (ms), aligned 1:1 with chunkUrisRef.
+  const chunkDurationsRef = useRef<number[]>([]);
 
   // ── Transcript state ──────────────────────────────────────────────────────
   const [transcriptChunks, setTranscriptChunks] = useState<TranscriptChunk[]>([]);
@@ -182,7 +196,7 @@ export default function RecordScreen() {
   // ── Duration timer & pulsing animation ───────────────────────────────────
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
-    if (isRecording) {
+    if (isRecording && !isPaused) {
       interval = setInterval(() => {
         setDuration((prev) => {
           const next = prev + 1000;
@@ -209,7 +223,7 @@ export default function RecordScreen() {
       pulseAnim.setValue(1);
     }
     return () => clearInterval(interval);
-  }, [isRecording]);
+  }, [isRecording, isPaused]);
 
   // ── Global Audio Session Cleanup on Unmount ───────────────────────────────
   useEffect(() => {
@@ -275,15 +289,14 @@ export default function RecordScreen() {
         setIsTranscribing(true);
         // Shift safely at the start so a sync throw doesn't stall the loop
         const item = chunkQueueRef.current.shift()!;
-        const { uri: uriToProcess, chunkIndex, startSec } = item;
+        const { uri: uriToProcess, chunkIndex, startMs, endMs } = item;
 
         try {
           // Mark chunk as pending in UI immediately
-          const endSec = startSec + 30;
           const pendingChunk: TranscriptChunk = {
             index: chunkIndex,
-            startSec,
-            endSec,
+            startMs,
+            endMs,
             text: '',
             isPending: true,
           };
@@ -310,8 +323,8 @@ export default function RecordScreen() {
           if (success && text && text.trim()) {
             const completedChunk: TranscriptChunk = {
               index: chunkIndex,
-              startSec,
-              endSec,
+              startMs,
+              endMs,
               text: text.trim(),
               isPending: false,
             };
@@ -326,8 +339,8 @@ export default function RecordScreen() {
             // Remove pending chunk on permanent failure
             const failedChunk: TranscriptChunk = {
               index: chunkIndex,
-              startSec,
-              endSec,
+              startMs,
+              endMs,
               text: '[인식 실패]',
               isPending: false,
             };
@@ -377,8 +390,9 @@ export default function RecordScreen() {
     setIsAIUpdating(true);
 
     try {
+      const customInstruction = useSettingsStore.getState().summaryTemplates?.[selectedLectureType] || '';
       const [sumRes, transRes] = await Promise.all([
-        summarizeText(fullTranscript, selectedLectureType, summaryLanguage),
+        summarizeText(fullTranscript, selectedLectureType, summaryLanguage, customInstruction),
         translateText(fullTranscript, translationLanguage)
       ]);
 
@@ -416,8 +430,10 @@ export default function RecordScreen() {
     }
 
     const chunkIndex = chunkCounterRef.current;
-    const startSec = chunkIndex * 30;
+    const startMs = chunkStartMsRef.current;
+    const endMs = durationRef.current;
     chunkCounterRef.current += 1;
+    chunkStartMsRef.current = endMs; // next chunk starts where this one ended
 
     console.log(`[cycleChunk] ▶ starting rollover for chunk #${chunkIndex} | elapsed ${Math.round(durationRef.current / 1000)}s`);
 
@@ -436,6 +452,7 @@ export default function RecordScreen() {
           stableUri = null;
         } else {
           chunkUrisRef.current.push(stableUri);
+          chunkDurationsRef.current.push(Math.max(0, endMs - startMs));
           console.log(`[cycleChunk] ✅ chunk #${chunkIndex} persisted | size=${validation.size} bytes`);
         }
       }
@@ -467,11 +484,12 @@ export default function RecordScreen() {
         if (!processedOrQueuedChunksRef.current.has(chunkIndex)) {
             processedOrQueuedChunksRef.current.add(chunkIndex);
             console.log(`[cycleChunk] queuing chunk #${chunkIndex} for transcription | URI: ${stableUri}`);
-            chunkQueueRef.current.push({ 
+            chunkQueueRef.current.push({
                 chunkId: `chunk_${Date.now()}_${chunkIndex}`,
-                uri: stableUri, 
-                chunkIndex, 
-                startSec,
+                uri: stableUri,
+                chunkIndex,
+                startMs,
+                endMs,
                 createdAt: Date.now()
             });
             processTranscriptionQueue();
@@ -490,12 +508,6 @@ export default function RecordScreen() {
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-  };
-
-  const formatSeconds = (sec: number) => {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
   // ── Start recording ───────────────────────────────────────────────────────
@@ -556,6 +568,12 @@ export default function RecordScreen() {
       const recordingId = Date.now().toString();
       activeRecordingIdRef.current = recordingId;
       chunkCounterRef.current = 0;
+      chunkStartMsRef.current = 0;
+      chunkDurationsRef.current = [];
+      highlightsRef.current = [];
+      setHighlightCount(0);
+      isPausedRef.current = false;
+      setIsPaused(false);
 
       console.log('[Recording] Initializing session in store with ID:', recordingId);
       const initialRecording: RecordingMeta = {
@@ -601,7 +619,12 @@ export default function RecordScreen() {
     isRecordingRef.current = false;
     isStoppingRef.current = true;
     setIsRecording(false);
+    isPausedRef.current = false;
+    setIsPaused(false);
     clearRolloverTimer();
+    // Capture the final chunk's real time bounds before any awaits mutate refs.
+    const finalStartMs = chunkStartMsRef.current;
+    const finalEndMs = durationRef.current;
     console.log(`[stopRecording] ▶ triggered | session duration: ${Math.round(durationRef.current / 1000)}s | chunks accumulated: ${chunkCounterRef.current}`);
 
     const currentRec = recordingRef.current;
@@ -640,6 +663,7 @@ export default function RecordScreen() {
           stableUri = null;
         } else {
           chunkUrisRef.current.push(stableUri);
+          chunkDurationsRef.current.push(Math.max(0, finalEndMs - finalStartMs));
         }
       } else {
         console.warn('[stopRecording] getURI() returned null/empty');
@@ -648,16 +672,16 @@ export default function RecordScreen() {
       // Transcribe final piece
       if (stableUri) {
         const chunkIndex = chunkCounterRef.current;
-        const startSec = chunkIndex * 30;
         chunkCounterRef.current += 1;
         console.log(`[stopRecording] ▶ triggering transcription for final chunk #${chunkIndex} | URI: ${stableUri}`);
         if (!processedOrQueuedChunksRef.current.has(chunkIndex)) {
             processedOrQueuedChunksRef.current.add(chunkIndex);
-            chunkQueueRef.current.push({ 
+            chunkQueueRef.current.push({
                 chunkId: `chunk_${Date.now()}_${chunkIndex}`,
-                uri: stableUri, 
-                chunkIndex, 
-                startSec,
+                uri: stableUri,
+                chunkIndex,
+                startMs: finalStartMs,
+                endMs: finalEndMs,
                 createdAt: Date.now()
             });
             processTranscriptionQueue();
@@ -678,12 +702,22 @@ export default function RecordScreen() {
       const rootUri = chunkUrisRef.current[0] || stableUri || '';
       console.log(`[stopRecording] final transcript length: ${fullString.length} chars | rootUri: ${rootUri}`);
 
+      // Time-aligned segments enable tap-to-seek + active-segment highlighting in the detail view.
+      const segments = transcriptChunksRef.current
+        .filter((c) => !c.isPending && c.text && c.text !== '[인식 실패]')
+        .map((c) => ({ startMs: c.startMs, endMs: c.endMs, text: c.text }))
+        .sort((a, b) => a.startMs - b.startMs);
+
       if (activeRecordingIdRef.current) {
         updateRecording(activeRecordingIdRef.current, {
           uri: rootUri,
           chunkUris: [...chunkUrisRef.current],
+          chunkDurations: [...chunkDurationsRef.current],
           duration: durationRef.current,
           transcript: fullString,
+          segments,
+          highlights: [...highlightsRef.current].sort((a, b) => a - b),
+          source: 'recording',
         });
 
         // Meter speech-to-text usage by the recorded duration.
@@ -691,6 +725,23 @@ export default function RecordScreen() {
 
         console.log('[stopRecording] running final AI pass...');
         await generateFinalAIContent();
+
+        // Optional automatic speaker diarization: when enabled, run a background
+        // full-file diarized pass (non-blocking) and replace transcript/segments
+        // with speaker-labeled, time-aligned results when it finishes.
+        if (useSettingsStore.getState().diarizationEnabled && chunkUrisRef.current.length > 0) {
+          const diarId = activeRecordingIdRef.current;
+          const diarUris = [...chunkUrisRef.current];
+          const diarLang = recognitionLanguage;
+          transcribeWithSpeakers(diarUris, diarLang)
+            .then(({ transcript, segments: diarSegs }) => {
+              if (diarId && transcript && transcript.trim()) {
+                updateRecording(diarId, { transcript, segments: diarSegs });
+                console.log('[autoDiarize] applied speaker-labeled transcript');
+              }
+            })
+            .catch((e) => console.warn('[autoDiarize] failed (non-fatal):', e));
+        }
 
         console.log(`[stopRecording] ✅ recording saved | id=${activeRecordingIdRef.current} | chunks=${chunkUrisRef.current.length} | transcript=${fullString.length} chars`);
         activeRecordingIdRef.current = null;
@@ -701,6 +752,47 @@ export default function RecordScreen() {
       console.error('[stopRecording] ❌ failed:', err);
       isStoppingRef.current = false;
     }
+  };
+
+  // ── Pause / Resume ────────────────────────────────────────────────────────
+  const pauseRecording = async () => {
+    if (!isRecordingRef.current || isPausedRef.current || isRolloverInProgressRef.current) return;
+    try {
+      clearRolloverTimer();
+      await recordingRef.current?.pauseAsync();
+      isPausedRef.current = true;
+      setIsPaused(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      console.log('[pauseRecording] paused');
+    } catch (err) {
+      console.warn('[pauseRecording] failed:', err);
+    }
+  };
+
+  const resumeRecording = async () => {
+    if (!isRecordingRef.current || !isPausedRef.current) return;
+    try {
+      await recordingRef.current?.startAsync();
+      isPausedRef.current = false;
+      setIsPaused(false);
+      scheduleNextRollover();
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      console.log('[resumeRecording] resumed');
+    } catch (err) {
+      console.warn('[resumeRecording] failed:', err);
+    }
+  };
+
+  // ── Highlight / bookmark the current moment ───────────────────────────────
+  const addHighlight = () => {
+    if (!isRecordingRef.current) return;
+    const at = durationRef.current;
+    // Avoid duplicate marks within 1s
+    if (highlightsRef.current.some((h) => Math.abs(h - at) < 1000)) return;
+    highlightsRef.current = [...highlightsRef.current, at];
+    setHighlightCount(highlightsRef.current.length);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    console.log(`[addHighlight] marked at ${Math.round(at / 1000)}s (total ${highlightsRef.current.length})`);
   };
 
   // ── Cancel recording ──────────────────────────────────────────────────────
@@ -717,6 +809,8 @@ export default function RecordScreen() {
             onPress: async () => {
               isRecordingRef.current = false;
               setIsRecording(false);
+              isPausedRef.current = false;
+              setIsPaused(false);
               clearRolloverTimer();
               processedOrQueuedChunksRef.current.clear();
               const idToDelete = activeRecordingIdRef.current;
@@ -783,10 +877,17 @@ export default function RecordScreen() {
             <Animated.View
               style={[
                 styles.statusPill,
-                { backgroundColor: theme.accent, transform: [{ scale: pulseAnim }] },
+                {
+                  backgroundColor: isPaused ? theme.unselectedChip : theme.accent,
+                  transform: [{ scale: pulseAnim }],
+                },
               ]}
             >
-              <MaterialIcons name="mic" size={18} color={theme.primary} />
+              <MaterialIcons
+                name={isPaused ? 'pause' : 'mic'}
+                size={18}
+                color={isPaused ? theme.textSecondary : theme.primary}
+              />
             </Animated.View>
           )}
         </View>
@@ -817,7 +918,7 @@ export default function RecordScreen() {
             {transcriptChunks.length === 0 ? (
               <View>
                 <Text style={[styles.emptyTranscript, { color: theme.textTertiary }]}>
-                  {isRecording ? '듣고 있습니다...' : '강의 녹음을 시작해주세요.'}
+                  {isRecording ? (isPaused ? '일시정지됨' : '듣고 있습니다...') : '강의 녹음을 시작해주세요.'}
                 </Text>
                 {!isRecording && (
                   <Text style={[styles.emptyTranscript, { color: theme.textTertiary, fontSize: 11, marginTop: 8, paddingHorizontal: 16, lineHeight: 16 }]}>
@@ -834,7 +935,7 @@ export default function RecordScreen() {
                   >
                     <MaterialIcons name="access-time" size={11} color={theme.textSecondary} />
                     <Text style={[styles.timestampText, { color: theme.textSecondary }]}>
-                      {formatSeconds(chunk.startSec)} – {formatSeconds(chunk.endSec)}
+                      {formatTime(chunk.startMs)} – {formatTime(chunk.endMs)}
                     </Text>
                   </View>
 
@@ -890,17 +991,51 @@ export default function RecordScreen() {
             )}
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity
-            style={[
-              styles.mainButton,
-              styles.stopButton,
-              { backgroundColor: theme.surface, borderColor: theme.border, ...Shadows.floating },
-            ]}
-            onPress={stopRecording}
-            activeOpacity={0.8}
-          >
-            <View style={[styles.stopSquare, { backgroundColor: theme.error }]} />
-          </TouchableOpacity>
+          <View style={styles.recordingControlsRow}>
+            {/* Highlight / bookmark current moment */}
+            <View style={styles.sideControl}>
+              <TouchableOpacity
+                style={[styles.sideButton, { backgroundColor: theme.surface, borderColor: theme.border, ...Shadows.soft }]}
+                onPress={addHighlight}
+                activeOpacity={0.7}
+              >
+                <MaterialIcons name="bookmark-add" size={26} color={theme.accent} />
+                {highlightCount > 0 && (
+                  <View style={[styles.highlightBadge, { backgroundColor: theme.accent }]}>
+                    <Text style={styles.highlightBadgeText}>{highlightCount}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+              <Text style={[styles.sideLabel, { color: theme.textSecondary }]}>북마크</Text>
+            </View>
+
+            {/* Stop */}
+            <TouchableOpacity
+              style={[
+                styles.mainButton,
+                styles.stopButton,
+                { backgroundColor: theme.surface, borderColor: theme.border, ...Shadows.floating },
+              ]}
+              onPress={stopRecording}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.stopSquare, { backgroundColor: theme.error }]} />
+            </TouchableOpacity>
+
+            {/* Pause / Resume */}
+            <View style={styles.sideControl}>
+              <TouchableOpacity
+                style={[styles.sideButton, { backgroundColor: theme.surface, borderColor: theme.border, ...Shadows.soft }]}
+                onPress={isPaused ? resumeRecording : pauseRecording}
+                activeOpacity={0.7}
+              >
+                <MaterialIcons name={isPaused ? 'play-arrow' : 'pause'} size={28} color={theme.text} />
+              </TouchableOpacity>
+              <Text style={[styles.sideLabel, { color: theme.textSecondary }]}>
+                {isPaused ? '재개' : '일시정지'}
+              </Text>
+            </View>
+          </View>
         )}
       </View>
 
@@ -1127,6 +1262,45 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 6,
+  },
+  recordingControlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xl,
+  },
+  sideControl: {
+    alignItems: 'center',
+    gap: Spacing.xs,
+    width: 64,
+  },
+  sideButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sideLabel: {
+    ...Typography.caption,
+    fontWeight: '600',
+  },
+  highlightBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  highlightBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
   },
   // Modal styles
   modalOverlay: {

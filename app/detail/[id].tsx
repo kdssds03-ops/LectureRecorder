@@ -1,4 +1,6 @@
-import { ChatMessage, chatWithLecture, transcribeAudio, translateText } from '@/api/aiService';
+import { ChatMessage, chatWithLecture, transcribeAudio, transcribeWithSpeakers, translateText } from '@/api/aiService';
+import { ensurePlayerSetup } from '@/api/playerSetup';
+import TrackPlayer, { Event, State, usePlaybackState, useProgress, useTrackPlayerEvents } from 'react-native-track-player';
 import Snackbar from '@/components/Snackbar';
 import { Colors } from '@/constants/Colors';
 import { Radius, Shadows, Spacing, Typography } from '@/constants/theme';
@@ -7,18 +9,18 @@ import { useRecordingStore } from '@/store/useRecordingStore';
 import { useSubscriptionStore } from '@/store/useSubscriptionStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { Feather, MaterialIcons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
 import * as Clipboard from 'expo-clipboard';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Href, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   SafeAreaView,
   Share,
   ScrollView,
@@ -30,6 +32,14 @@ import {
 } from 'react-native';
 
 type TabType = 'transcript' | 'summary' | 'translation' | 'quiz';
+
+// Deterministic color per speaker so each voice keeps a consistent color.
+const SPEAKER_PALETTE = ['#3A5A40', '#BC6C25', '#6A4C93', '#1D3557', '#A23E48', '#2A6F97', '#7B5E2A', '#43654A'];
+function speakerColor(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return SPEAKER_PALETTE[h % SPEAKER_PALETTE.length];
+}
 
 interface StructuredSummary {
   lectureType?: string;
@@ -87,6 +97,9 @@ export default function DetailScreen() {
   const updateRecording = useRecordingStore((state) => state.updateRecording);
   const fetchSummary = useRecordingStore((state) => state.fetchSummary);
   const fetchQuiz = useRecordingStore((state) => state.fetchQuiz);
+  const fetchChapters = useRecordingStore((state) => state.fetchChapters);
+  const toggleFavorite = useRecordingStore((state) => state.toggleFavorite);
+  const setTags = useRecordingStore((state) => state.setTags);
 
   // Free-tier gate: returns true if the action may proceed, else opens paywall.
   const ensureMinutes = useCallback((): boolean => {
@@ -119,53 +132,121 @@ export default function DetailScreen() {
 
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitleDraft, setEditTitleDraft] = useState('');
+  const [tagDraft, setTagDraft] = useState('');
 
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playbackPosition, setPlaybackPosition] = useState(0);
-  const [playbackDuration, setPlaybackDuration] = useState(0);
+  // ── Track Player (lock-screen / Control Center playback) ──────────────────
+  // Chunks are loaded as a player queue (one track per chunk) so the FULL lecture
+  // plays back-to-back with media controls on the lock screen & notification.
+  // We map between per-track time and absolute lecture time via chunkDurations
+  // so seeking, segments, chapters and bookmarks all work across chunks.
+  const progress = useProgress(250);
+  const playbackState = usePlaybackState();
+  const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
   const [playbackRate, setPlaybackRate] = useState<1.0 | 1.2 | 1.5 | 2.0>(1.0);
+  const [trackWidth, setTrackWidth] = useState(0);
+  const loadedIdRef = useRef<string | null>(null);
 
   const SPEED_STEPS: Array<1.0 | 1.2 | 1.5 | 2.0> = [1.0, 1.2, 1.5, 2.0];
 
-  useEffect(() => {
-    return () => {
-      if (sound) {
-        sound.unloadAsync().catch(() => { });
-      }
-      Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-      }).catch(() => { });
-    };
-  }, [sound]);
+  const chunkUris = useMemo(() => {
+    if (recording?.chunkUris && recording.chunkUris.length > 0) return recording.chunkUris;
+    return recording?.uri ? [recording.uri] : [];
+  }, [recording?.chunkUris, recording?.uri]);
+
+  // Per-chunk durations are only trusted when aligned 1:1 with chunkUris.
+  const chunkDurations = useMemo(() => {
+    if (
+      recording?.chunkDurations &&
+      chunkUris.length > 0 &&
+      recording.chunkDurations.length === chunkUris.length
+    ) {
+      return recording.chunkDurations;
+    }
+    return null;
+  }, [recording?.chunkDurations, chunkUris.length]);
+
+  const cumulativeOffsets = useMemo(() => {
+    const offs: number[] = [];
+    let acc = 0;
+    for (let i = 0; i < chunkUris.length; i++) {
+      offs.push(acc);
+      acc += chunkDurations ? chunkDurations[i] : 0;
+    }
+    return offs;
+  }, [chunkUris.length, chunkDurations]);
+
+  const totalDuration = useMemo(() => {
+    if (chunkDurations) return chunkDurations.reduce((a, b) => a + b, 0);
+    return recording?.duration || (progress.duration ? progress.duration * 1000 : 0);
+  }, [chunkDurations, recording?.duration, progress.duration]);
+
+  // True only when THIS recording is the one currently loaded in the global player.
+  const playerHasThis = loadedIdRef.current === recording?.id;
+  const isPlaying = playerHasThis && playbackState.state === State.Playing;
+  const globalPosition = playerHasThis
+    ? (cumulativeOffsets[currentChunkIndex] || 0) + progress.position * 1000
+    : 0;
+
+  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], (event) => {
+    if (event.type === Event.PlaybackActiveTrackChanged && typeof event.index === 'number') {
+      setCurrentChunkIndex(event.index);
+    }
+  });
+
+  const loadIntoPlayer = useCallback(async () => {
+    if (!recording || chunkUris.length === 0) return;
+    await ensurePlayerSetup();
+    const tracks = chunkUris.map((url, i) => ({
+      id: `${recording.id}-${i}`,
+      url,
+      title: recording.name || '강의 기록',
+      artist: '노깡',
+      ...(chunkDurations ? { duration: chunkDurations[i] / 1000 } : {}),
+    }));
+    await TrackPlayer.reset();
+    await TrackPlayer.add(tracks);
+    await TrackPlayer.setRate(playbackRate);
+    loadedIdRef.current = recording.id;
+    setCurrentChunkIndex(0);
+  }, [recording?.id, recording?.name, chunkUris, chunkDurations, playbackRate]);
 
   const togglePlayback = async () => {
-    if (!recording) return;
+    if (chunkUris.length === 0) return;
     try {
-      if (sound && isPlaying) {
-        await sound.pauseAsync();
-        setIsPlaying(false);
-      } else if (sound) {
-        await sound.playAsync();
-        setIsPlaying(true);
-      } else {
-        const { sound: newSound } = await Audio.Sound.createAsync(
-          { uri: recording.uri },
-          { shouldPlay: true },
-          (status) => {
-            if (status.isLoaded) {
-              setPlaybackPosition(status.positionMillis ?? 0);
-              setPlaybackDuration(status.durationMillis ?? 0);
-              if (status.didJustFinish) setIsPlaying(false);
-            }
-          }
-        );
-        setSound(newSound);
-        setIsPlaying(true);
+      if (loadedIdRef.current !== recording?.id) {
+        await loadIntoPlayer();
+        await TrackPlayer.play();
+        return;
       }
-    } catch (error) {
+      const state = (await TrackPlayer.getPlaybackState()).state;
+      if (state === State.Playing) await TrackPlayer.pause();
+      else await TrackPlayer.play();
+    } catch {
       Alert.alert('재생 오류', '오디오를 재생할 수 없습니다.');
+    }
+  };
+
+  /** Seek to an absolute position (ms) across the whole lecture. */
+  const seekToGlobal = async (globalMs: number) => {
+    if (chunkUris.length === 0) return;
+    const clamped = totalDuration ? Math.max(0, Math.min(globalMs, totalDuration - 1)) : Math.max(0, globalMs);
+    let target = 0;
+    if (chunkDurations) {
+      for (let i = 0; i < chunkUris.length; i++) {
+        const start = cumulativeOffsets[i];
+        const end = start + chunkDurations[i];
+        if (clamped >= start && clamped < end) { target = i; break; }
+        if (i === chunkUris.length - 1) target = i;
+      }
+    }
+    const offsetSec = Math.max(0, clamped - (cumulativeOffsets[target] || 0)) / 1000;
+    try {
+      if (loadedIdRef.current !== recording?.id) await loadIntoPlayer();
+      if (chunkUris.length > 1) await TrackPlayer.skip(target);
+      await TrackPlayer.seekTo(offsetSec);
+      await TrackPlayer.play();
+    } catch {
+      Alert.alert('재생 오류', '해당 위치로 이동할 수 없습니다.');
     }
   };
 
@@ -173,7 +254,11 @@ export default function DetailScreen() {
     const nextIdx = (SPEED_STEPS.indexOf(playbackRate) + 1) % SPEED_STEPS.length;
     const nextRate = SPEED_STEPS[nextIdx];
     setPlaybackRate(nextRate);
-    if (sound) await sound.setRateAsync(nextRate, true);
+    try {
+      await TrackPlayer.setRate(nextRate);
+    } catch {
+      // ignore — rate will apply on next load
+    }
   };
 
   const handleTranscribe = useCallback(async () => {
@@ -248,6 +333,87 @@ export default function DetailScreen() {
       setProcessingStatus('');
     }
   }, [recording, fetchQuiz]);
+
+  const handleGenerateChapters = useCallback(async () => {
+    if (!recording) return;
+    setIsProcessing(true);
+    setProcessingStatus('AI 챕터 생성 중...');
+    try {
+      await fetchChapters(recording.id);
+    } catch (error: any) {
+      if (error?.message === 'NO_SEGMENTS') {
+        Alert.alert('챕터 생성 불가', '실시간 전사로 만든 녹음에서만 자동 챕터를 생성할 수 있어요.');
+      } else {
+        Alert.alert('챕터 생성 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
+      }
+    } finally {
+      setIsProcessing(false);
+      setProcessingStatus('');
+    }
+  }, [recording, fetchChapters]);
+
+  // Diarization pass: merges all chunks server-side and re-transcribes the whole
+  // lecture in one shot with consistent speaker labels + timestamps. Works for
+  // both live recordings (chunked) and imported single files.
+  const hasAudio = !!recording && (((recording.chunkUris?.length ?? 0) > 0) || !!recording.uri);
+
+  const handleReTranscribeSpeakers = useCallback(async () => {
+    if (!recording) return;
+    if (!ensureMinutes()) return;
+    const uris = recording.chunkUris && recording.chunkUris.length > 0
+      ? recording.chunkUris
+      : recording.uri ? [recording.uri] : [];
+    if (uris.length === 0) {
+      Alert.alert('알림', '오디오 파일을 찾을 수 없습니다.');
+      return;
+    }
+    setIsEditingTitle(false);
+    setIsProcessing(true);
+    setProcessingStatus('화자 구분 분석 중...');
+    try {
+      const { transcript, segments } = await transcribeWithSpeakers(uris, recognitionLanguage);
+      if (transcript && transcript.trim()) {
+        // Keep segments (now carrying speaker + timestamps) so the transcript is
+        // both speaker-labeled AND seekable.
+        updateRecording(recording.id, { transcript, segments });
+        useSubscriptionStore.getState().consumeSeconds((recording.duration ?? 0) / 1000);
+      } else {
+        Alert.alert('알림', '인식된 음성이 없습니다.');
+      }
+    } catch (error: any) {
+      Alert.alert('화자 구분 실패', API_ERROR_MESSAGES[classifyApiError(error)]);
+    } finally {
+      setIsProcessing(false);
+      setProcessingStatus('');
+    }
+  }, [recording, recognitionLanguage, updateRecording, ensureMinutes]);
+
+  const confirmReTranscribeSpeakers = () => {
+    Alert.alert(
+      '화자 구분 분석',
+      '전체 오디오를 다시 분석해 화자별로 구분합니다. 길이에 따라 시간이 걸리며 사용량이 소모됩니다. 진행할까요?',
+      [
+        { text: '취소', style: 'cancel' },
+        { text: '시작', onPress: handleReTranscribeSpeakers },
+      ]
+    );
+  };
+
+  const openNoteSettings = () => {
+    setEditTitleDraft(recording?.name || displayName);
+    setTagDraft('');
+    setIsEditingTitle(true);
+  };
+  const addTag = () => {
+    const t = tagDraft.trim();
+    if (!t || !recording) return;
+    setTags(recording.id, [...(recording.tags || []), t]);
+    setTagDraft('');
+  };
+  const removeTag = (tag: string) => {
+    if (!recording) return;
+    setTags(recording.id, (recording.tags || []).filter((x) => x !== tag));
+  };
 
   const handleSendChat = async () => {
     const q = chatInput.trim();
@@ -425,7 +591,23 @@ export default function DetailScreen() {
     return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   };
 
-  const progressWidth = playbackDuration > 0 ? (playbackPosition / playbackDuration) * 100 : 0;
+  const progressWidth = totalDuration > 0 ? (globalPosition / totalDuration) * 100 : 0;
+
+  const handleSeekPress = (locationX: number) => {
+    if (trackWidth <= 0 || totalDuration <= 0) return;
+    const ratio = Math.max(0, Math.min(1, locationX / trackWidth));
+    seekToGlobal(ratio * totalDuration);
+  };
+
+  // Index of the transcript segment currently playing (for live highlight).
+  const activeSegmentIndex = useMemo(() => {
+    const segs = recording?.segments;
+    if (!segs || segs.length === 0 || !isPlaying) return -1;
+    for (let i = 0; i < segs.length; i++) {
+      if (globalPosition >= segs[i].startMs && globalPosition < segs[i].endMs) return i;
+    }
+    return -1;
+  }, [recording?.segments, globalPosition, isPlaying]);
 
   const renderTranscript = (text: string) => {
     const lines = text.split('\n');
@@ -448,10 +630,12 @@ export default function DetailScreen() {
       }
       const speakerMatch = line.match(/^\[화자\s+(.+?)\]\s*(.*)$/);
       if (speakerMatch) {
+        const sc = speakerColor(speakerMatch[1]);
         elements.push(
-          <View key={`sp-${i}`} style={styles.speakerRow}>
-            <View style={[styles.speakerBadge, { backgroundColor: theme.primary + '20' }]}>
-              <Text style={[styles.speakerBadgeText, { color: theme.primary }]}>화자 {speakerMatch[1]}</Text>
+          <View key={`sp-${i}`} style={[styles.speakerRow, { borderLeftColor: sc }]}>
+            <View style={[styles.speakerBadge, { backgroundColor: sc + '20' }]}>
+              <View style={[styles.speakerDot, { backgroundColor: sc }]} />
+              <Text style={[styles.speakerBadgeText, { color: sc }]}>화자 {speakerMatch[1]}</Text>
             </View>
             <Text style={[styles.transcriptBody, { color: theme.text, flex: 1 }]}>{speakerMatch[2]}</Text>
           </View>
@@ -465,6 +649,99 @@ export default function DetailScreen() {
       }
     }
     return elements.length > 0 ? elements : <Text style={[styles.transcriptBody, { color: theme.text }]}>{text}</Text>;
+  };
+
+  // AI chapter navigation: shows generated chapters (tap to jump) or a generate
+  // button. Only available when time-aligned segments exist.
+  const renderChapters = () => {
+    const chapters = recording?.chapters;
+    const hasSegments = !!(recording?.segments && recording.segments.length > 0);
+
+    if (chapters && chapters.length > 0) {
+      return (
+        <View style={[styles.chaptersCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <View style={styles.chaptersHeaderRow}>
+            <View style={styles.chaptersTitleRow}>
+              <MaterialIcons name="list" size={16} color={theme.primary} />
+              <Text style={[styles.chaptersTitle, { color: theme.text }]}>챕터 {chapters.length}</Text>
+            </View>
+            <TouchableOpacity onPress={handleGenerateChapters} disabled={isProcessing}>
+              <Text style={[styles.chaptersRegen, { color: theme.textSecondary }]}>다시 생성</Text>
+            </TouchableOpacity>
+          </View>
+          {chapters.map((ch, i) => (
+            <TouchableOpacity
+              key={`ch-${i}`}
+              style={styles.chapterRow}
+              activeOpacity={0.7}
+              onPress={() => seekToGlobal(ch.startMs)}
+            >
+              <View style={[styles.chapterTimePill, { backgroundColor: theme.unselectedChip }]}>
+                <Text style={[styles.chapterTimeText, { color: theme.textSecondary }]}>{formatTime(ch.startMs)}</Text>
+              </View>
+              <Text style={[styles.chapterTitleText, { color: theme.text }]} numberOfLines={2}>{ch.title}</Text>
+              <Feather name="play" size={14} color={theme.textTertiary} />
+            </TouchableOpacity>
+          ))}
+        </View>
+      );
+    }
+
+    if (hasSegments) {
+      return (
+        <TouchableOpacity
+          style={[styles.generateChaptersBtn, { borderColor: theme.border, backgroundColor: theme.surface }]}
+          onPress={handleGenerateChapters}
+          disabled={isProcessing}
+          activeOpacity={0.7}
+        >
+          <MaterialIcons name="auto-awesome" size={16} color={theme.primary} />
+          <Text style={[styles.generateChaptersText, { color: theme.primary }]}>AI 챕터 생성</Text>
+        </TouchableOpacity>
+      );
+    }
+    return null;
+  };
+
+  // Time-aligned transcript: tap any segment to jump playback there; the segment
+  // playing right now is highlighted automatically.
+  const renderSegments = () => {
+    const segs = recording?.segments || [];
+    return (
+      <View style={styles.transcriptSection}>
+        {segs.map((seg, i) => {
+          const active = i === activeSegmentIndex;
+          return (
+            <TouchableOpacity
+              key={`seg-${i}`}
+              activeOpacity={0.7}
+              onPress={() => seekToGlobal(seg.startMs)}
+              style={[
+                styles.segmentBlock,
+                active && { backgroundColor: theme.primary + '12' },
+                seg.speaker ? { borderLeftWidth: 3, borderLeftColor: speakerColor(seg.speaker), paddingLeft: Spacing.sm } : null,
+              ]}
+            >
+              <View style={styles.segHeaderRow}>
+                <View style={[styles.segTimePill, { backgroundColor: active ? theme.primary : theme.unselectedChip }]}>
+                  <MaterialIcons name="play-arrow" size={11} color={active ? '#FFFFFF' : theme.textSecondary} />
+                  <Text style={[styles.segTimeText, { color: active ? '#FFFFFF' : theme.textSecondary }]}>
+                    {formatTime(seg.startMs)}
+                  </Text>
+                </View>
+                {seg.speaker && (
+                  <View style={[styles.segSpeakerBadge, { backgroundColor: speakerColor(seg.speaker) + '20' }]}>
+                    <View style={[styles.speakerDot, { backgroundColor: speakerColor(seg.speaker) }]} />
+                    <Text style={[styles.segSpeakerText, { color: speakerColor(seg.speaker) }]}>화자 {seg.speaker}</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={[styles.transcriptBody, { color: theme.text, marginBottom: 0 }]}>{seg.text}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
   };
 
   const renderSummary = () => {
@@ -698,10 +975,14 @@ export default function DetailScreen() {
         </View>
 
         <TouchableOpacity
-          onPress={() => setIsEditingTitle(true)}
+          onPress={openNoteSettings}
           style={[styles.circularButton, { backgroundColor: theme.surface, ...Shadows.soft }]}
         >
-          <Feather name="more-horizontal" size={24} color={theme.text} />
+          {recording?.isFavorite ? (
+            <MaterialIcons name="star" size={22} color={theme.accent} />
+          ) : (
+            <Feather name="more-horizontal" size={24} color={theme.text} />
+          )}
         </TouchableOpacity>
       </View>
 
@@ -724,10 +1005,15 @@ export default function DetailScreen() {
             </TouchableOpacity>
 
             <Text style={[styles.timeText, { color: theme.textSecondary, marginLeft: Spacing.sm }]}>
-              {formatTime(playbackPosition)}
+              {formatTime(globalPosition)}
             </Text>
 
-            <View style={styles.sliderTrack}>
+            <Pressable
+              style={styles.sliderTrack}
+              hitSlop={{ top: 14, bottom: 14 }}
+              onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}
+              onPress={(e) => handleSeekPress(e.nativeEvent.locationX)}
+            >
               <View
                 style={[
                   styles.sliderFill,
@@ -740,12 +1026,44 @@ export default function DetailScreen() {
                   { left: `${progressWidth}%`, backgroundColor: theme.surface, ...Shadows.soft },
                 ]}
               />
-            </View>
+            </Pressable>
 
             <Text style={[styles.timeText, { color: theme.textSecondary, marginRight: Spacing.sm }]}>
-              {formatTime(playbackDuration || displayDuration)}
+              {formatTime(totalDuration || displayDuration)}
             </Text>
+
+            <TouchableOpacity
+              onPress={cycleSpeed}
+              style={[styles.speedPill, { backgroundColor: theme.unselectedChip }]}
+            >
+              <Text style={[styles.speedText, { color: theme.textSecondary }]}>{playbackRate}x</Text>
+            </TouchableOpacity>
           </View>
+
+          {/* Bookmarks captured during recording */}
+          {recording?.highlights && recording.highlights.length > 0 && (
+            <View style={styles.bookmarkStrip}>
+              <View style={styles.bookmarkLabelRow}>
+                <MaterialIcons name="bookmark" size={14} color={theme.accent} />
+                <Text style={[styles.bookmarkLabel, { color: theme.textSecondary }]}>
+                  북마크 {recording.highlights.length}
+                </Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: Spacing.xs }}>
+                {recording.highlights.map((ms, i) => (
+                  <TouchableOpacity
+                    key={`hl-${i}`}
+                    style={[styles.bookmarkChip, { backgroundColor: theme.accent + '20', borderColor: theme.accent + '40' }]}
+                    onPress={() => seekToGlobal(ms)}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialIcons name="play-arrow" size={13} color={theme.accent} />
+                    <Text style={[styles.bookmarkChipText, { color: theme.text }]}>{formatTime(ms)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
         </View>
 
         {/* Content area */}
@@ -758,7 +1076,12 @@ export default function DetailScreen() {
               </Text>
             </View>
           ) : activeTab === 'transcript' ? (
-            recording?.transcript ? (
+            (recording?.segments && recording.segments.length > 0) ? (
+              <View>
+                {renderChapters()}
+                {renderSegments()}
+              </View>
+            ) : recording?.transcript ? (
               <View style={styles.transcriptSection}>{renderTranscript(recording.transcript)}</View>
             ) : (
               <View style={styles.emptyContentContainer}>
@@ -843,35 +1166,100 @@ export default function DetailScreen() {
         </View>
       )}
 
-      {/* Title edit modal */}
-      <Modal visible={isEditingTitle} transparent animationType="fade">
-        <TouchableOpacity
+      {/* Note settings modal: title, favorite, tags, speaker re-transcription */}
+      <Modal visible={isEditingTitle} transparent animationType="fade" onRequestClose={() => setIsEditingTitle(false)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setIsEditingTitle(false)}
         >
           <View style={[styles.modalContent, { backgroundColor: theme.surface, ...Shadows.medium }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>노트 제목 변경</Text>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>노트 설정</Text>
+
             <TextInput
               style={[
                 styles.modalInput,
-                { color: theme.text, borderColor: theme.border, backgroundColor: theme.background },
+                { color: theme.text, borderColor: theme.border, backgroundColor: theme.background, marginBottom: Spacing.md },
               ]}
               value={editTitleDraft}
               onChangeText={setEditTitleDraft}
-              autoFocus
+              placeholder="노트 제목"
+              placeholderTextColor={theme.textTertiary}
             />
-            <View style={styles.modalButtons}>
+
+            {/* Favorite */}
+            <TouchableOpacity
+              style={styles.noteModalRow}
+              activeOpacity={0.7}
+              onPress={() => recording && toggleFavorite(recording.id)}
+            >
+              <Text style={[styles.noteModalLabel, { color: theme.text }]}>즐겨찾기</Text>
+              <MaterialIcons
+                name={recording?.isFavorite ? 'star' : 'star-border'}
+                size={24}
+                color={recording?.isFavorite ? theme.accent : theme.textTertiary}
+              />
+            </TouchableOpacity>
+
+            {/* Tags */}
+            <Text style={[styles.noteModalLabel, { color: theme.text, marginTop: Spacing.sm, marginBottom: Spacing.xs }]}>태그</Text>
+            {recording?.tags && recording.tags.length > 0 && (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, marginBottom: Spacing.sm }}>
+                {recording.tags.map((tag) => (
+                  <TouchableOpacity
+                    key={tag}
+                    style={[styles.tagChip, { backgroundColor: theme.primary + '12', borderColor: theme.primary + '30' }]}
+                    onPress={() => removeTag(tag)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.tagChipText, { color: theme.primary }]}>#{tag}</Text>
+                    <Feather name="x" size={12} color={theme.primary} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+            <View style={{ flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md }}>
+              <TextInput
+                style={[styles.modalInput, { flex: 1, marginBottom: 0, color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
+                value={tagDraft}
+                onChangeText={setTagDraft}
+                placeholder="태그 추가"
+                placeholderTextColor={theme.textTertiary}
+                onSubmitEditing={addTag}
+                returnKeyType="done"
+              />
+              <TouchableOpacity
+                style={[styles.modalButton, { width: 56, flex: 0, backgroundColor: theme.primary, borderColor: theme.primary }]}
+                onPress={addTag}
+              >
+                <Feather name="plus" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Speaker diarization pass (works for live recordings and imports) */}
+            {hasAudio && (
+              <TouchableOpacity
+                style={[styles.reTranscribeBtn, { borderColor: theme.border }]}
+                onPress={confirmReTranscribeSpeakers}
+                activeOpacity={0.7}
+              >
+                <Feather name="users" size={16} color={theme.textSecondary} />
+                <Text style={{ color: theme.textSecondary, ...Typography.bodyMedium, fontWeight: '600' }}>
+                  화자 구분 분석
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            <View style={[styles.modalButtons, { marginTop: Spacing.lg }]}>
               <TouchableOpacity
                 style={[styles.modalButton, { borderColor: theme.border }]}
                 onPress={() => setIsEditingTitle(false)}
               >
-                <Text style={{ color: theme.textSecondary, ...Typography.bodyMedium }}>취소</Text>
+                <Text style={{ color: theme.textSecondary, ...Typography.bodyMedium }}>닫기</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalButton, { backgroundColor: theme.text }]}
                 onPress={() => {
-                  if (editTitleDraft.trim()) updateRecording(id as string, { name: editTitleDraft.trim() });
+                  if (editTitleDraft.trim()) updateRecording(id as string, { name: editTitleDraft.trim(), titleSource: 'user' });
                   setIsEditingTitle(false);
                 }}
               >
@@ -881,7 +1269,7 @@ export default function DetailScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={chatVisible} animationType="slide" transparent onRequestClose={() => setChatVisible(false)}>
@@ -1012,6 +1400,178 @@ const styles = StyleSheet.create({
   },
   timeText: {
     ...Typography.caption,
+  },
+  speedPill: {
+    marginLeft: Spacing.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: Radius.pill,
+    minWidth: 40,
+    alignItems: 'center',
+  },
+  speedText: {
+    ...Typography.caption,
+    fontWeight: '700',
+  },
+  bookmarkStrip: {
+    marginTop: Spacing.md,
+  },
+  bookmarkLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: Spacing.xs,
+  },
+  bookmarkLabel: {
+    ...Typography.caption,
+    fontWeight: '700',
+  },
+  bookmarkChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+  },
+  bookmarkChipText: {
+    ...Typography.caption,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  segmentBlock: {
+    borderRadius: Radius.md,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  segTimePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.pill,
+    marginBottom: Spacing.xs,
+  },
+  segTimeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  segHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginBottom: Spacing.xs,
+    flexWrap: 'wrap',
+  },
+  segSpeakerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.pill,
+  },
+  segSpeakerText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  chaptersCard: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    padding: Spacing.md,
+    marginBottom: Spacing.lg,
+  },
+  chaptersHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  chaptersTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  chaptersTitle: {
+    ...Typography.bodyMedium,
+    fontWeight: '700',
+  },
+  chaptersRegen: {
+    ...Typography.caption,
+    fontWeight: '600',
+  },
+  chapterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: 8,
+  },
+  chapterTimePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.pill,
+  },
+  chapterTimeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  chapterTitleText: {
+    flex: 1,
+    ...Typography.bodyMedium,
+    fontWeight: '500',
+  },
+  generateChaptersBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: Radius.pill,
+    paddingVertical: 12,
+    marginBottom: Spacing.lg,
+  },
+  generateChaptersText: {
+    ...Typography.bodyMedium,
+    fontWeight: '700',
+  },
+  tagChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+  },
+  tagChipText: {
+    ...Typography.caption,
+    fontWeight: '600',
+  },
+  noteModalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.sm,
+  },
+  noteModalLabel: {
+    ...Typography.bodyMedium,
+    fontWeight: '600',
+  },
+  reTranscribeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: Radius.lg,
+    paddingVertical: 12,
+    marginTop: Spacing.sm,
   },
   contentArea: {
     marginTop: Spacing.md,
@@ -1252,12 +1812,22 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: Spacing.sm,
     marginBottom: Spacing.sm,
+    borderLeftWidth: 3,
+    paddingLeft: Spacing.sm,
   },
   speakerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     borderRadius: Radius.pill,
     paddingHorizontal: 10,
     paddingVertical: 4,
     marginTop: 2,
+  },
+  speakerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   speakerBadgeText: {
     ...Typography.caption,

@@ -273,9 +273,10 @@ async function callOpenAI(opts: OpenAICallOptions): Promise<string> {
 async function summarizeDirect(
   text: string,
   lectureType: LectureType,
-  language: SummaryLanguage
+  language: SummaryLanguage,
+  extraInstruction: string = ''
 ): Promise<{ parsed: Record<string, unknown>; rawContent: string }> {
-  const systemPrompt = buildSystemPrompt(lectureType, language);
+  const systemPrompt = buildSystemPrompt(lectureType, language) + extraInstruction;
   const userContent = language === 'ko'
     ? `다음 강의 녹취록을 분석하고 JSON 형식으로 요약해 주세요:\n\n${text}`
     : language === 'en'
@@ -344,7 +345,8 @@ async function summarizeChunk(
 async function summarizeChunked(
   text: string,
   lectureType: LectureType,
-  language: SummaryLanguage
+  language: SummaryLanguage,
+  extraInstruction: string = ''
 ): Promise<{ parsed: Record<string, unknown>; rawContent: string }> {
   const chunks = splitIntoChunks(text);
   console.log(`[summarize] chunked path — ${chunks.length} chunks, total ${text.length} chars`);
@@ -378,7 +380,7 @@ async function summarizeChunked(
     return lines.join('\n');
   }).join('\n\n---\n\n');
 
-  const mergeSystemPrompt = buildMergePrompt(lectureType, language, successfulExtractions.length);
+  const mergeSystemPrompt = buildMergePrompt(lectureType, language, successfulExtractions.length) + extraInstruction;
   const mergeUserContent = language === 'ko'
     ? `다음은 강의 전체에서 추출된 구간별 내용입니다. 이를 종합하여 전체 강의의 JSON 요약을 작성해 주세요:\n\n${extractionSummary}`
     : language === 'en'
@@ -415,11 +417,19 @@ router.post('/', async (req: Request, res: Response) => {
   const t0 = Date.now();
   const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
 
-  const { text, lectureType = 'general', language = 'ko' } = req.body as {
+  const { text, lectureType = 'general', language = 'ko', customInstruction } = req.body as {
     text?: string;
     lectureType?: LectureType;
     language?: SummaryLanguage;
+    customInstruction?: string;
   };
+
+  // Optional user-defined extra instruction, appended to the system prompt.
+  // Bounded to keep prompts sane and prevent prompt-injection bloat.
+  const extraInstruction =
+    typeof customInstruction === 'string' && customInstruction.trim()
+      ? '\n\n[사용자 지정 요청]\n' + customInstruction.trim().slice(0, 600)
+      : '';
 
   if (!text || text.trim().length === 0) {
     res.status(400).json({ error: 'Request body must include a non-empty "text" field.' });
@@ -458,9 +468,9 @@ router.post('/', async (req: Request, res: Response) => {
     let rawContent: string;
 
     if (isChunked) {
-      ({ parsed, rawContent } = await summarizeChunked(text, resolvedType, resolvedLanguage));
+      ({ parsed, rawContent } = await summarizeChunked(text, resolvedType, resolvedLanguage, extraInstruction));
     } else {
-      ({ parsed, rawContent } = await summarizeDirect(text, resolvedType, resolvedLanguage));
+      ({ parsed, rawContent } = await summarizeDirect(text, resolvedType, resolvedLanguage, extraInstruction));
     }
 
     const suggestedName: string = (typeof parsed.suggestedName === 'string' ? parsed.suggestedName : '').trim().slice(0, 20);

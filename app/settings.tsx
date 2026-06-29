@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, View, SafeAreaView, ScrollView, TouchableOpacity, TextInput, Alert, Linking, Platform, Switch, ActivityIndicator, KeyboardAvoidingView } from 'react-native';
+import { StyleSheet, Text, View, SafeAreaView, ScrollView, TouchableOpacity, TextInput, Alert, Linking, Platform, Switch, ActivityIndicator, KeyboardAvoidingView, Modal } from 'react-native';
+import { LECTURE_TYPE_LABELS, LECTURE_TYPE_ICONS, LectureType } from '@/store/useRecordingStore';
 import * as WebBrowser from 'expo-web-browser';
 import { Href, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
@@ -64,11 +65,35 @@ export default function SettingsScreen() {
     diarizationEnabled, setDiarizationEnabled,
     summaryLanguage, setSummaryLanguage,
     translationLanguage, setTranslationLanguage,
+    summaryTemplates, setSummaryTemplate,
     _hasHydrated,
   } = useSettingsStore();
 
   const [tapCount, setTapCount] = useState(0);
   const [secretDraft, setSecretDraft] = useState('');
+
+  // ── Summary template editor ────────────────────────────────────────────────
+  const LECTURE_TYPE_LIST: LectureType[] = [
+    'general', 'math', 'science', 'coding', 'humanities', 'language',
+    'history', 'economics', 'law', 'medicine', 'art', 'other',
+  ];
+  const [tplVisible, setTplVisible] = useState(false);
+  const [tplType, setTplType] = useState<LectureType>('general');
+  const [tplDraft, setTplDraft] = useState('');
+  const customizedCount = Object.values(summaryTemplates || {}).filter((v) => v && v.trim()).length;
+
+  const selectTplType = (t: LectureType) => {
+    setTplType(t);
+    setTplDraft(summaryTemplates?.[t] || '');
+  };
+  const openTplEditor = () => {
+    selectTplType('general');
+    setTplVisible(true);
+  };
+  const saveTpl = () => {
+    setSummaryTemplate(tplType, tplDraft.trim());
+    Alert.alert('저장됨', `${LECTURE_TYPE_LABELS[tplType]} 요약 지시문이 저장되었습니다.`);
+  };
 
   if (!_hasHydrated) {
     return (
@@ -108,6 +133,15 @@ export default function SettingsScreen() {
     if (current === 'ko') setFunc('en');
     else setFunc('ko');
   };
+
+  // Recognition language cycles through all supported options.
+  const RECOGNITION_CYCLE = ['auto', 'ko', 'en', 'zh'] as const;
+  const RECOGNITION_LABELS: Record<string, string> = { auto: '자동', ko: '한국어', en: '영어', zh: '중국어' };
+  const cycleRecognitionLanguage = () => {
+    const idx = RECOGNITION_CYCLE.indexOf(recognitionLanguage as any);
+    const next = RECOGNITION_CYCLE[(idx + 1) % RECOGNITION_CYCLE.length];
+    setRecognitionLanguage(next);
+  };
   
   const toggleQualityOption = () => {
     if (audioQuality === 'high') setAudioQuality('standard');
@@ -132,9 +166,9 @@ export default function SettingsScreen() {
             <SettingRow
               icon="globe"
               label="음성 인식 언어"
-              value={recognitionLanguage === 'ko' ? '한국어' : recognitionLanguage === 'en' ? '영어' : '자동'}
+              value={RECOGNITION_LABELS[recognitionLanguage] ?? '자동'}
               theme={theme}
-              onPress={() => toggleLanguageOption(recognitionLanguage, setRecognitionLanguage)}
+              onPress={cycleRecognitionLanguage}
             />
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             <SettingRow
@@ -171,6 +205,25 @@ export default function SettingsScreen() {
               value={translationLanguage === 'en' ? '영어' : translationLanguage === 'ja' ? '일본어' : '한국어'}
               theme={theme}
               onPress={() => toggleLanguageOption(translationLanguage, setTranslationLanguage)}
+            />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            <SettingRow
+              icon="edit-3"
+              label="요약 템플릿 편집"
+              value={customizedCount > 0 ? `${customizedCount}개 맞춤` : '기본'}
+              theme={theme}
+              onPress={openTplEditor}
+            />
+          </View>
+
+          <SectionHeader title="실험실" theme={theme} />
+          <View style={[styles.sectionGroup, { backgroundColor: theme.surface, ...Shadows.soft }]}>
+            <SettingRow
+              icon="radio"
+              label="실시간 받아쓰기 (실험적)"
+              value="화자 구분"
+              theme={theme}
+              onPress={() => router.push('/record-live' as Href)}
             />
           </View>
 
@@ -223,6 +276,65 @@ export default function SettingsScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Summary template editor */}
+      <Modal visible={tplVisible} transparent animationType="slide" onRequestClose={() => setTplVisible(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.tplOverlay}>
+          <View style={[styles.tplSheet, { backgroundColor: theme.surface }]}>
+            <View style={[styles.tplHandle, { backgroundColor: theme.border }]} />
+            <View style={styles.tplHeaderRow}>
+              <Text style={[styles.tplTitle, { color: theme.text }]}>요약 템플릿 편집</Text>
+              <TouchableOpacity onPress={() => setTplVisible(false)}>
+                <Feather name="x" size={22} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+            <Text style={[styles.tplSubtitle, { color: theme.textSecondary }]}>
+              강의 종류별로 AI 요약에 추가할 지시문을 입력하세요. (예: "공식은 표로 정리해줘")
+            </Text>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tplChips}>
+              {LECTURE_TYPE_LIST.map((t) => {
+                const selected = t === tplType;
+                const has = !!(summaryTemplates?.[t] && summaryTemplates[t].trim());
+                return (
+                  <TouchableOpacity
+                    key={t}
+                    onPress={() => selectTplType(t)}
+                    style={[
+                      styles.tplChip,
+                      {
+                        backgroundColor: selected ? theme.primary : theme.background,
+                        borderColor: selected ? theme.primary : theme.border,
+                      },
+                    ]}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.tplChipIcon}>{LECTURE_TYPE_ICONS[t]}</Text>
+                    <Text style={[styles.tplChipText, { color: selected ? '#FFFFFF' : theme.text }]}>
+                      {LECTURE_TYPE_LABELS[t]}
+                    </Text>
+                    {has && <View style={[styles.tplDot, { backgroundColor: selected ? '#FFFFFF' : theme.accent }]} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <TextInput
+              style={[styles.tplInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
+              placeholder="이 강의 종류의 요약에 반영할 요청을 입력하세요..."
+              placeholderTextColor={theme.textTertiary}
+              value={tplDraft}
+              onChangeText={setTplDraft}
+              multiline
+              maxLength={600}
+            />
+
+            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: theme.primary }]} onPress={saveTpl}>
+              <Text style={{ color: '#FFFFFF', ...Typography.bodyMedium, fontWeight: '700' }}>저장</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -262,4 +374,16 @@ const styles = StyleSheet.create({
   devPanel: { marginTop: Spacing.xl, padding: Spacing.lg, borderRadius: Radius.xl },
   input: { height: 48, borderWidth: 1, borderRadius: Radius.lg, paddingHorizontal: Spacing.md, marginBottom: Spacing.md, ...Typography.bodyMedium },
   saveBtn: { height: 48, borderRadius: Radius.lg, justifyContent: 'center', alignItems: 'center' },
+  tplOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
+  tplSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: Spacing.md, paddingHorizontal: Spacing.screenPadding, paddingBottom: 40 },
+  tplHandle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: Spacing.lg },
+  tplHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xs },
+  tplTitle: { ...Typography.titleMedium, fontWeight: '700' },
+  tplSubtitle: { ...Typography.bodySmall, marginBottom: Spacing.md },
+  tplChips: { gap: Spacing.xs, paddingVertical: Spacing.xs, paddingRight: Spacing.md },
+  tplChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: Radius.pill, borderWidth: 1 },
+  tplChipIcon: { fontSize: 14 },
+  tplChipText: { ...Typography.bodySmall, fontWeight: '600' },
+  tplDot: { width: 6, height: 6, borderRadius: 3, marginLeft: 2 },
+  tplInput: { minHeight: 110, maxHeight: 200, borderWidth: 1, borderRadius: Radius.lg, padding: Spacing.md, marginTop: Spacing.md, marginBottom: Spacing.md, ...Typography.bodyMedium, textAlignVertical: 'top' },
 });
