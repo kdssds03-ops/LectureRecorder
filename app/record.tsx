@@ -15,7 +15,7 @@ import {
   Modal,
   FlatList,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
@@ -127,6 +127,7 @@ interface QueuedChunk {
 
 export default function RecordScreen() {
   const router = useRouter();
+  const { autostart } = useLocalSearchParams<{ autostart?: string }>();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
   const { addRecording, updateRecording, removeRecording } = useRecordingStore();
@@ -183,11 +184,13 @@ export default function RecordScreen() {
     }
   };
 
+  // Shorter chunks → transcript appears ~2x faster during recording.
+  const CHUNK_INTERVAL_MS = 15000;
   const scheduleNextRollover = () => {
     clearRolloverTimer();
     rolloverTimeoutRef.current = setTimeout(() => {
       cycleChunk();
-    }, 30000);
+    }, CHUNK_INTERVAL_MS);
   };
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -610,6 +613,15 @@ export default function RecordScreen() {
       setIsStartingRecording(false);
     }
   };
+
+  // ── Auto-start when launched from the home mic button ─────────────────────
+  const hasAutoStartedRef = useRef(false);
+  useEffect(() => {
+    if (autostart === '1' && !hasAutoStartedRef.current && !isRecording && !isStartingRecording) {
+      hasAutoStartedRef.current = true;
+      startRecording();
+    }
+  }, [autostart]);
 
   // ── Stop recording ────────────────────────────────────────────────────────
   const stopRecording = async () => {
@@ -1155,8 +1167,11 @@ const styles = StyleSheet.create({
   timer: {
     ...Typography.titleLarge,
     fontSize: 48,
+    lineHeight: 58,
     fontWeight: '300',
     fontVariant: ['tabular-nums'],
+    includeFontPadding: false,
+    paddingVertical: 2,
   },
   statusPill: {
     width: 48,

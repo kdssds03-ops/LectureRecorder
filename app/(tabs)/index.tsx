@@ -320,10 +320,10 @@ export default function HomeScreen() {
       </ScrollView>
 
       {/* Bottom Recording Button from Image */}
-      <View style={styles.bottomContainer}>
+      <View style={styles.bottomContainer} pointerEvents="box-none">
         <TouchableOpacity
           style={[styles.mainRecordButton, { backgroundColor: theme.primary, ...Shadows.medium }]}
-          onPress={() => router.push('/record')}
+          onPress={() => router.push({ pathname: '/record', params: { autostart: '1' } })}
           activeOpacity={0.8}
         >
           <MaterialIcons name="mic" size={32} color={theme.background} />
@@ -542,6 +542,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
+    zIndex: 10,
+    elevation: 10,
   },
   mainRecordButton: {
     width: 72,
