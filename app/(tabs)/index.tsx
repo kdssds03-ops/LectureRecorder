@@ -320,8 +320,8 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      {/* Bottom Recording Button — docked in normal flow so it always receives taps */}
-      <View style={[styles.bottomContainer, { backgroundColor: theme.background }]}>
+      {/* Bottom Recording Button — floating (box-none) so it reliably receives taps on iOS */}
+      <View pointerEvents="box-none" style={styles.bottomContainer}>
         <TouchableOpacity
           style={[styles.mainRecordButton, { backgroundColor: theme.primary, ...Shadows.medium }]}
           onPress={() => router.push({ pathname: '/record', params: { autostart: '1' } })}
@@ -442,7 +442,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 24,
+    paddingBottom: 120,
   },
   folderContainer: {
     marginBottom: Spacing.lg,
@@ -541,9 +541,15 @@ const styles = StyleSheet.create({
     paddingLeft: 40,
   },
   bottomContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     alignItems: 'center',
     paddingTop: 12,
     paddingBottom: 28,
+    zIndex: 10,
+    elevation: 10,
   },
   mainRecordButton: {
     width: 72,

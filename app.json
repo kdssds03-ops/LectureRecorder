@@ -20,7 +20,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.hyunminkim.nokkang",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "icon": "./assets/images/icon.png",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "강의 내용을 실시간으로 녹음하고 텍스트로 변환하기 위해 마이크 접근 권한이 필요합니다.",
