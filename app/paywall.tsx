@@ -5,6 +5,7 @@ import { getPackages, isPurchasesEnabled, purchase, restorePurchases } from '@/a
 import { FREE_MONTHLY_MINUTES, useSubscriptionStore } from '@/store/useSubscriptionStore';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -25,18 +26,31 @@ const BENEFITS = [
   '새 기능 우선 제공',
 ];
 
+// Apple standard EULA (used when a custom EULA is not provided).
+const APPLE_EULA_URL = 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
+const PRIVACY_POLICY_URL = 'https://kdssds03-ops.github.io/nokkang-site/privacy.html';
+const TERMS_OF_SERVICE_URL = 'https://kdssds03-ops.github.io/nokkang-site/terms.html';
+
 export default function PaywallScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
   const isPremium = useSubscriptionStore((s) => s.isPremium);
+  const remaining = useSubscriptionStore((s) => s.getRemainingMinutes());
+
+  // When RevenueCat isn't configured (1.0 free launch, no IAP), we must not show
+  // a non-functional purchase UI — App Review would reject it (2.1 / 3.1). In
+  // that case we render a "free usage" info screen with no buy button. Once
+  // EXPO_PUBLIC_REVENUECAT_IOS_KEY is set (1.1), the full paywall renders.
+  const purchasesEnabled = isPurchasesEnabled();
 
   const [packages, setPackages] = useState<PurchasesPackage[]>([]);
   const [selected, setSelected] = useState<PurchasesPackage | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(purchasesEnabled);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    if (!purchasesEnabled) return;
     let mounted = true;
     (async () => {
       const pkgs = await getPackages();
@@ -48,7 +62,10 @@ export default function PaywallScreen() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [purchasesEnabled]);
+
+  const openLink = (url: string) =>
+    WebBrowser.openBrowserAsync(url, { toolbarColor: theme.surface, controlsColor: theme.primary });
 
   const handleSubscribe = async () => {
     if (!selected) return;
@@ -81,6 +98,54 @@ export default function PaywallScreen() {
     }
   };
 
+  // ── Free-usage info screen (no IAP configured) ────────────────────────────
+  if (!purchasesEnabled) {
+    const remainingLabel = isPremium
+      ? '무제한'
+      : Number.isFinite(remaining)
+        ? `${remaining}분`
+        : '무제한';
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={[styles.closeBtn, { backgroundColor: theme.surface, ...Shadows.soft }]}>
+            <Feather name="x" size={22} color={theme.text} />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <Text style={[styles.title, { color: theme.text }]}>무료로 사용 중</Text>
+          <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+            노깡은 매월 {FREE_MONTHLY_MINUTES}분까지 무료로 녹음·변환할 수 있어요.{'\n'}녹음, 요약, 번역, 퀴즈, 채팅까지 모두 포함됩니다.
+          </Text>
+
+          <View style={[styles.usageCard, { backgroundColor: theme.primary + '12', borderColor: theme.primary + '30' }]}>
+            <Feather name="clock" size={22} color={theme.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.usageLabel, { color: theme.textSecondary }]}>이번 달 남은 사용량</Text>
+              <Text style={[styles.usageValue, { color: theme.primary }]}>{remainingLabel}</Text>
+            </View>
+          </View>
+
+          <Text style={[styles.subtitle, { color: theme.textTertiary, marginTop: Spacing.lg }]}>
+            사용량은 매월 자동으로 초기화됩니다. 한도에 도달하면 다음 달에 다시 이용할 수 있어요.
+          </Text>
+
+          <View style={styles.legalLinks}>
+            <TouchableOpacity onPress={() => openLink(PRIVACY_POLICY_URL)}>
+              <Text style={[styles.legalLink, { color: theme.textSecondary }]}>개인정보 처리방침</Text>
+            </TouchableOpacity>
+            <Text style={[styles.legalSep, { color: theme.textTertiary }]}>·</Text>
+            <TouchableOpacity onPress={() => openLink(TERMS_OF_SERVICE_URL)}>
+              <Text style={[styles.legalLink, { color: theme.textSecondary }]}>이용약관</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // ── Paywall (RevenueCat configured) ───────────────────────────────────────
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
@@ -114,9 +179,7 @@ export default function PaywallScreen() {
           <ActivityIndicator color={theme.primary} style={{ marginTop: Spacing.xl }} />
         ) : packages.length === 0 ? (
           <Text style={[styles.notice, { color: theme.textSecondary }]}>
-            {isPurchasesEnabled()
-              ? '현재 이용 가능한 구독 상품이 없습니다. 잠시 후 다시 시도해 주세요.'
-              : '구독 결제가 아직 설정되지 않았습니다. (RevenueCat 키/상품 설정 후 활성화됩니다)'}
+            현재 이용 가능한 구독 상품이 없습니다. 잠시 후 다시 시도해 주세요.
           </Text>
         ) : (
           <>
@@ -154,6 +217,16 @@ export default function PaywallScreen() {
         <Text style={[styles.legal, { color: theme.textTertiary }]}>
           구독은 기간 만료 전 해지하지 않으면 자동 갱신되며, 기기의 App Store 계정 설정에서 관리·해지할 수 있습니다.
         </Text>
+
+        <View style={styles.legalLinks}>
+          <TouchableOpacity onPress={() => openLink(APPLE_EULA_URL)}>
+            <Text style={[styles.legalLink, { color: theme.textSecondary }]}>이용약관(EULA)</Text>
+          </TouchableOpacity>
+          <Text style={[styles.legalSep, { color: theme.textTertiary }]}>·</Text>
+          <TouchableOpacity onPress={() => openLink(PRIVACY_POLICY_URL)}>
+            <Text style={[styles.legalLink, { color: theme.textSecondary }]}>개인정보 처리방침</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -170,6 +243,12 @@ const styles = StyleSheet.create({
   benefitRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   benefitText: { ...Typography.bodyMedium, flex: 1 },
   notice: { ...Typography.bodyMedium, marginTop: Spacing.xl, textAlign: 'center', lineHeight: 22 },
+  usageCard: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    borderWidth: 1, borderRadius: Radius.lg, padding: Spacing.lg, marginTop: Spacing.xl,
+  },
+  usageLabel: { ...Typography.caption },
+  usageValue: { ...Typography.titleLarge, fontWeight: '800', marginTop: 2 },
   planRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     borderRadius: Radius.lg, padding: Spacing.lg, marginTop: Spacing.md,
@@ -181,4 +260,7 @@ const styles = StyleSheet.create({
   restoreBtn: { alignItems: 'center', paddingVertical: Spacing.lg },
   restoreText: { ...Typography.bodyMedium, textDecorationLine: 'underline' },
   legal: { ...Typography.caption, textAlign: 'center', marginTop: Spacing.sm, lineHeight: 18 },
+  legalLinks: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.lg },
+  legalLink: { ...Typography.caption, textDecorationLine: 'underline' },
+  legalSep: { ...Typography.caption },
 });

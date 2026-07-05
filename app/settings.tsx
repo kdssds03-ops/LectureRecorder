@@ -10,7 +10,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { setAppSecret } from '@/api/aiService';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { FREE_MONTHLY_MINUTES, useSubscriptionStore } from '@/store/useSubscriptionStore';
-import { restorePurchases } from '@/api/purchases';
+import { isPurchasesEnabled, restorePurchases } from '@/api/purchases';
 
 function SectionHeader({ title, theme }: { title: string; theme: any }) {
   return <Text style={[styles.sectionHeader, { color: theme.textSecondary }]}>{title}</Text>;
@@ -104,14 +104,14 @@ export default function SettingsScreen() {
   }
 
   const handlePrivacyPolicy = async () => {
-    await WebBrowser.openBrowserAsync('https://gist.github.com/kdssds03-ops/d5e16b62e40867e50d4d61649c5f794e', {
+    await WebBrowser.openBrowserAsync('https://kdssds03-ops.github.io/nokkang-site/privacy.html', {
       toolbarColor: theme.surface,
       controlsColor: theme.primary,
     });
   };
 
   const handleTerms = async () => {
-    await WebBrowser.openBrowserAsync('https://github.com/kdssds03-ops/LectureRecorder/blob/main/TERMS_OF_SERVICE.md', {
+    await WebBrowser.openBrowserAsync('https://kdssds03-ops.github.io/nokkang-site/terms.html', {
       toolbarColor: theme.surface,
       controlsColor: theme.primary,
     });
@@ -216,29 +216,55 @@ export default function SettingsScreen() {
             />
           </View>
 
-          <SectionHeader title="실험실" theme={theme} />
-          <View style={[styles.sectionGroup, { backgroundColor: theme.surface, ...Shadows.soft }]}>
-            <SettingRow
-              icon="radio"
-              label="실시간 받아쓰기 (실험적)"
-              value="화자 구분"
-              theme={theme}
-              onPress={() => router.push('/record-live' as Href)}
-            />
-          </View>
+          {/* Experimental features are dev-only. Hidden in production builds to
+              avoid App Review 2.1 (completeness) risk from unfinished screens. */}
+          {__DEV__ && (
+            <>
+              <SectionHeader title="실험실" theme={theme} />
+              <View style={[styles.sectionGroup, { backgroundColor: theme.surface, ...Shadows.soft }]}>
+                <SettingRow
+                  icon="radio"
+                  label="실시간 받아쓰기 (실험적)"
+                  value="화자 구분"
+                  theme={theme}
+                  onPress={() => router.push('/record-live' as Href)}
+                />
+              </View>
+            </>
+          )}
 
-          <SectionHeader title="구독" theme={theme} />
-          <View style={[styles.sectionGroup, { backgroundColor: theme.surface, ...Shadows.soft }]}>
-            <SettingRow
-              icon="star"
-              label={isPremium ? '프리미엄 이용 중' : '프리미엄 구독'}
-              value={isPremium ? '무제한' : `이번 달 ${remaining}분 남음`}
-              theme={theme}
-              onPress={() => router.push('/paywall' as Href)}
-            />
-            <View style={[styles.divider, { backgroundColor: theme.border }]} />
-            <SettingRow icon="refresh-ccw" label="구매 복원" theme={theme} onPress={handleRestore} />
-          </View>
+          {/* Subscription section is IAP-specific. When RevenueCat isn't
+              configured (1.0 free launch), show a usage section without any
+              purchase/restore UI to avoid App Review 2.1/3.1 risk. */}
+          {isPurchasesEnabled() ? (
+            <>
+              <SectionHeader title="구독" theme={theme} />
+              <View style={[styles.sectionGroup, { backgroundColor: theme.surface, ...Shadows.soft }]}>
+                <SettingRow
+                  icon="star"
+                  label={isPremium ? '프리미엄 이용 중' : '프리미엄 구독'}
+                  value={isPremium ? '무제한' : `이번 달 ${remaining}분 남음`}
+                  theme={theme}
+                  onPress={() => router.push('/paywall' as Href)}
+                />
+                <View style={[styles.divider, { backgroundColor: theme.border }]} />
+                <SettingRow icon="refresh-ccw" label="구매 복원" theme={theme} onPress={handleRestore} />
+              </View>
+            </>
+          ) : (
+            <>
+              <SectionHeader title="사용량" theme={theme} />
+              <View style={[styles.sectionGroup, { backgroundColor: theme.surface, ...Shadows.soft }]}>
+                <SettingRow
+                  icon="clock"
+                  label="이번 달 남은 사용량"
+                  value={isPremium ? '무제한' : `${remaining}분`}
+                  theme={theme}
+                  onPress={() => router.push('/paywall' as Href)}
+                />
+              </View>
+            </>
+          )}
 
           <SectionHeader title="정보 & 지원" theme={theme} />
           <View style={[styles.sectionGroup, { backgroundColor: theme.surface, ...Shadows.soft }]}>

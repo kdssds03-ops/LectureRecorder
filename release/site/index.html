@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>노깡 (Nokkang) — AI 강의 녹음·요약 도우미</title>
+<meta name="description" content="노깡은 강의를 녹음하면 AI가 텍스트 변환, 요약, 번역, 퀴즈까지 만들어주는 대학생·수험생을 위한 강의 노트 앱입니다.">
+<style>
+  :root {
+    --forest: #3A5A40;
+    --forest-dark: #2C4530;
+    --cream: #F9F7F2;
+    --text: #2B2B28;
+    --text-secondary: #5C5C56;
+    --border: #E3DFD3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--cream);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", "Apple SD Gothic Neo", Roboto, sans-serif;
+    line-height: 1.7;
+  }
+  header {
+    background: var(--forest);
+    color: #fff;
+    padding: 28px 20px;
+  }
+  header .wrap {
+    max-width: 860px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header a.home {
+    color: #fff;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: -0.02em;
+  }
+  header a.home:before {
+    content: "🎙 ";
+  }
+  nav a {
+    color: #EAF0E7;
+    text-decoration: none;
+    margin-left: 18px;
+    font-size: 14px;
+  }
+  nav a:hover { text-decoration: underline; }
+
+  .hero {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 64px 20px 40px;
+    text-align: center;
+  }
+  .hero .badge {
+    display: inline-block;
+    background: #EAF0E7;
+    color: var(--forest-dark);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 999px;
+    margin-bottom: 18px;
+  }
+  .hero h1 {
+    font-size: 34px;
+    margin: 0 0 14px;
+    color: var(--forest-dark);
+    letter-spacing: -0.02em;
+  }
+  .hero p.lead {
+    font-size: 17px;
+    color: var(--text-secondary);
+    max-width: 560px;
+    margin: 0 auto;
+  }
+
+  main {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 0 20px 100px;
+  }
+
+  section { margin-top: 56px; }
+  h2 {
+    font-size: 22px;
+    color: var(--forest-dark);
+    margin-bottom: 20px;
+    text-align: center;
+  }
+
+  .features {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 640px) {
+    .features { grid-template-columns: 1fr 1fr; }
+  }
+  .feature-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 16px;
+    text-align: center;
+  }
+  .feature-card .icon { font-size: 28px; margin-bottom: 8px; }
+  .feature-card h3 { font-size: 15px; margin: 0 0 6px; color: var(--text); }
+  .feature-card p { font-size: 13px; color: var(--text-secondary); margin: 0; }
+
+  .steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+  }
+  .step {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    font-size: 14px;
+    flex: 1 1 140px;
+    text-align: center;
+  }
+  .step .n {
+    display: inline-flex;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--forest);
+    color: #fff;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  .support-box {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px 24px;
+    text-align: center;
+  }
+  .support-box h2 { margin-top: 0; }
+  .support-box .email-btn {
+    display: inline-block;
+    margin-top: 12px;
+    background: var(--forest);
+    color: #fff;
+    text-decoration: none;
+    padding: 12px 24px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .support-box .email-btn:hover { background: var(--forest-dark); }
+  .support-box .note {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: 14px;
+  }
+
+  .faq-item {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+  }
+  .faq-item h3 {
+    font-size: 15px;
+    margin: 0 0 6px;
+    color: var(--forest-dark);
+  }
+  .faq-item p {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin: 0;
+  }
+
+  .delete-box {
+    background: #FBF3E7;
+    border: 1px solid #E6D5B8;
+    border-radius: 12px;
+    padding: 18px 20px;
+    font-size: 14px;
+  }
+  .delete-box ol { margin: 8px 0 0; padding-left: 20px; }
+
+  footer {
+    text-align: center;
+    padding: 30px 20px 60px;
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+  footer nav a {
+    color: var(--forest);
+    margin: 0 8px;
+  }
+  a { color: var(--forest); }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="home" href="index.html">노깡 Nokkang</a>
+    <nav>
+      <a href="index.html">홈</a>
+      <a href="terms.html">이용약관</a>
+      <a href="privacy.html">개인정보처리방침</a>
+    </nav>
+  </div>
+</header>
+
+<div class="hero">
+  <span class="badge">iOS · 교육 · 무료</span>
+  <h1>노깡 — 강의 녹음, 그다음은 AI가</h1>
+  <p class="lead">강의를 녹음하면 AI가 텍스트로 바꾸고, 요약하고, 번역하고, 퀴즈까지 만들어 드립니다. 대학생과 수험생을 위한 강의 노트 앱, 노깡입니다.</p>
+</div>
+
+<main>
+  <section>
+    <h2>주요 기능</h2>
+    <div class="features">
+      <div class="feature-card">
+        <div class="icon">🎙️</div>
+        <h3>강의 녹음</h3>
+        <p>화자 구분까지 지원하는 간편한 녹음</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">📝</div>
+        <h3>자동 전사</h3>
+        <p>음성을 텍스트로 자동 변환</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">✨</div>
+        <h3>AI 요약</h3>
+        <p>핵심만 뽑은 구조화 노트</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🌐</div>
+        <h3>번역</h3>
+        <p>원하는 언어로 손쉽게 번역</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🧩</div>
+        <h3>퀴즈 생성</h3>
+        <p>강의 내용 기반 자동 복습 퀴즈</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">💬</div>
+        <h3>AI 채팅</h3>
+        <p>강의 내용을 바로 질문하고 답변받기</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>이용 흐름</h2>
+    <div class="steps">
+      <div class="step"><div class="n">1</div>녹음 시작</div>
+      <div class="step"><div class="n">2</div>자동 전사</div>
+      <div class="step"><div class="n">3</div>AI 요약·번역</div>
+      <div class="step"><div class="n">4</div>퀴즈로 복습</div>
+      <div class="step"><div class="n">5</div>내보내기·공유</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>자주 묻는 질문</h2>
+    <div class="faq-item">
+      <h3>회원가입이 필요한가요?</h3>
+      <p>아니요. 노깡은 별도의 회원가입이나 로그인 없이 바로 사용할 수 있습니다.</p>
+    </div>
+    <div class="faq-item">
+      <h3>무료로 얼마나 쓸 수 있나요?</h3>
+      <p>매월 120분까지 음성 인식·요약 기능을 무료로 이용할 수 있으며, 한도는 매월 초기화됩니다.</p>
+    </div>
+    <div class="faq-item">
+      <h3>내 녹음/데이터는 어디에 저장되나요?</h3>
+      <p>녹음 파일과 변환·요약 결과는 기본적으로 이용자의 기기에 저장됩니다. 음성 인식·요약·번역·퀴즈 생성을 위해 음성·텍스트가 처리 목적으로 해외 서버(AssemblyAI, OpenAI — 미국)에 전송되며, 처리 후 서버에 영구 보관되지 않습니다. 자세한 내용은 <a href="privacy.html">개인정보처리방침</a>을 참고하세요.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>내 데이터 삭제하기</h2>
+    <div class="delete-box">
+      <p>노깡은 계정이 없어 서버에 남는 개인 데이터가 없습니다. 아래 방법으로 언제든 완전히 삭제할 수 있습니다.</p>
+      <ol>
+        <li><strong>앱 내 개별 삭제</strong>: 원하는 녹음/노트를 선택 후 삭제하면 기기에서 즉시 제거됩니다.</li>
+        <li><strong>앱 삭제(완전 삭제)</strong>: 기기에서 앱을 삭제하면 저장된 모든 녹음·녹취록·요약·설정이 함께 삭제됩니다.</li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="support-box">
+    <h2>문의 및 지원</h2>
+    <p>앱 사용 중 궁금한 점이나 버그, 제안 사항이 있으면 언제든 편하게 연락해 주세요.</p>
+    <a class="email-btn" href="mailto:kdssds03@gmail.com">kdssds03@gmail.com 로 문의하기</a>
+    <p class="note">보통 영업일 기준 1~3일 내에 답변드립니다.</p>
+  </section>
+</main>
+
+<footer>
+  <div>© 2026 Nokkang. All rights reserved.</div>
+  <nav style="margin-top:8px;">
+    <a href="privacy.html">개인정보처리방침</a> · <a href="terms.html">이용약관</a>
+  </nav>
+</footer>
+</body>
+</html>

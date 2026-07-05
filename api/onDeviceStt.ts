@@ -1,15 +1,25 @@
 /**
  * onDeviceStt.ts — on-device speech-to-text via whisper.rn (whisper.cpp).
  *
- * STATUS: SCAFFOLD. This compiles, but on-device STT requires:
- *   1) an EAS *development build* (whisper.rn is a native module — NOT Expo Go),
- *   2) a GGML model on the device (set EXPO_PUBLIC_WHISPER_MODEL_URL to download,
- *      or bundle one and adjust ensureModelPath),
- *   3) device testing/tuning for accuracy, speed, battery, and audio format.
+ * STATUS: SCAFFOLD (dependency NOT installed for the 1.0 release).
+ *
+ * The `whisper.rn` package was removed from package.json before the iOS 1.0
+ * launch (on-device STT is deferred). This file is kept intact as the seam so
+ * on-device STT can be re-introduced later without rewiring the UI. To re-enable:
+ *   1) `npm install whisper.rn` (it is a native module — needs an EAS *dev build*,
+ *      NOT Expo Go),
+ *   2) provide a GGML model on the device (set EXPO_PUBLIC_WHISPER_MODEL_URL to
+ *      download, or bundle one and adjust ensureModelPath),
+ *   3) set EXPO_PUBLIC_ONDEVICE_STT=1 so getSttProvider() selects this provider,
+ *   4) device testing/tuning for accuracy, speed, battery, and audio format.
  *
  * IMPORTANT: whisper.cpp expects 16 kHz mono WAV. The app records m4a, so a
  * format conversion step is likely required before this will produce good text.
  * That conversion is the main remaining work and must be verified on a device.
+ *
+ * Because the module isn't installed, the dynamic import below will throw at
+ * runtime; getSttProvider() only reaches this path when EXPO_PUBLIC_ONDEVICE_STT
+ * is explicitly set, and it falls back to the cloud provider on failure.
  */
 import * as FileSystem from 'expo-file-system/legacy';
 import type { RecognitionLanguage } from '@/store/useSettingsStore';
@@ -37,9 +47,17 @@ async function getContext(): Promise<any> {
     contextPromise = (async () => {
       // Lazy import so the native module is only loaded when on-device is enabled.
       // Use a variable specifier so the type checker doesn't statically resolve
-      // whisper.rn's exports map (it has no root entry); Metro resolves it at runtime.
+      // whisper.rn (it is not installed in the 1.0 build); Metro would resolve it
+      // at runtime only if the package is re-added. Throws a clear error otherwise.
       const moduleName = 'whisper.rn';
-      const whisper: any = await import(moduleName);
+      let whisper: any;
+      try {
+        whisper = await import(moduleName);
+      } catch {
+        throw new Error(
+          'whisper.rn이 설치되어 있지 않습니다. 온디바이스 STT를 사용하려면 `npm install whisper.rn` 후 개발 빌드가 필요합니다.'
+        );
+      }
       const filePath = await ensureModelPath();
       return whisper.initWhisper({ filePath, useGpu: true, useCoreMLIos: true });
     })();

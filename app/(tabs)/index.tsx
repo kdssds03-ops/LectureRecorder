@@ -287,6 +287,7 @@ export default function HomeScreen() {
       )}
 
       <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -319,11 +320,11 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      {/* Bottom Recording Button from Image */}
-      <View style={styles.bottomContainer}>
+      {/* Bottom Recording Button — docked in normal flow so it always receives taps */}
+      <View style={[styles.bottomContainer, { backgroundColor: theme.background }]}>
         <TouchableOpacity
           style={[styles.mainRecordButton, { backgroundColor: theme.primary, ...Shadows.medium }]}
-          onPress={() => router.push('/record')}
+          onPress={() => router.push({ pathname: '/record', params: { autostart: '1' } })}
           activeOpacity={0.8}
         >
           <MaterialIcons name="mic" size={32} color={theme.background} />
@@ -437,8 +438,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.screenPadding,
     paddingTop: Spacing.md,
   },
+  scrollView: {
+    flex: 1,
+  },
   scrollContent: {
-    paddingBottom: 120,
+    paddingBottom: 24,
   },
   folderContainer: {
     marginBottom: Spacing.lg,
@@ -537,11 +541,9 @@ const styles = StyleSheet.create({
     paddingLeft: 40,
   },
   bottomContainer: {
-    position: 'absolute',
-    bottom: 40,
-    left: 0,
-    right: 0,
     alignItems: 'center',
+    paddingTop: 12,
+    paddingBottom: 28,
   },
   mainRecordButton: {
     width: 72,

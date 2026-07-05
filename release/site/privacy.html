@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>개인정보 처리방침 | 노깡 (Nokkang)</title>
+<style>
+  :root {
+    --forest: #3A5A40;
+    --forest-dark: #2C4530;
+    --cream: #F9F7F2;
+    --text: #2B2B28;
+    --text-secondary: #5C5C56;
+    --border: #E3DFD3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--cream);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", "Apple SD Gothic Neo", Roboto, sans-serif;
+    line-height: 1.7;
+  }
+  header {
+    background: var(--forest);
+    color: #fff;
+    padding: 28px 20px;
+  }
+  header .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header a.home {
+    color: #fff;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: -0.02em;
+  }
+  header a.home:before {
+    content: "🎙 ";
+  }
+  nav a {
+    color: #EAF0E7;
+    text-decoration: none;
+    margin-left: 18px;
+    font-size: 14px;
+  }
+  nav a:hover { text-decoration: underline; }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 40px 20px 100px;
+  }
+  h1 {
+    font-size: 26px;
+    margin-bottom: 4px;
+    color: var(--forest-dark);
+  }
+  .meta {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin-bottom: 32px;
+  }
+  .notice {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--forest);
+    padding: 14px 18px;
+    border-radius: 8px;
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 32px;
+  }
+  h2 {
+    font-size: 19px;
+    color: var(--forest-dark);
+    margin-top: 40px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+  }
+  h3 { font-size: 16px; color: var(--text); margin-top: 24px; }
+  p { font-size: 15px; }
+  ul, ol { font-size: 15px; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 14px;
+    background: #fff;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 10px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: #EEF2EA;
+    color: var(--forest-dark);
+  }
+  .highlight-box {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 20px 0;
+  }
+  .highlight-box h3 { margin-top: 0; }
+  a { color: var(--forest); }
+  footer {
+    text-align: center;
+    padding: 30px 20px 60px;
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+  code {
+    background: #EEF2EA;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="home" href="index.html">노깡 Nokkang</a>
+    <nav>
+      <a href="index.html">홈</a>
+      <a href="terms.html">이용약관</a>
+      <a href="privacy.html">개인정보처리방침</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <h1>개인정보 처리방침</h1>
+  <p class="meta">시행일: 2026년 6월 21일 · 최종 수정일: 2026년 6월 21일</p>
+
+  <div class="notice">
+    <strong>노깡(Nokkang) – AI 강의 노트</strong>(이하 "앱")은 「개인정보 보호법」 등 관련 법령을 준수하며, 이용자의 개인정보를 보호하기 위해 다음과 같이 처리방침을 둡니다. 본 문서는 표준 템플릿을 기반으로 앱의 실제 데이터 처리에 맞춰 작성되었습니다.
+  </div>
+
+  <h2>1. 처리하는 개인정보 항목</h2>
+  <p>앱은 회원가입이나 계정 생성을 요구하지 않으며, 이름·연락처 등 식별정보를 직접 수집하지 않습니다. 다만 서비스 제공을 위해 다음 정보를 처리합니다.</p>
+  <ul>
+    <li><strong>음성 녹음 데이터</strong>: 이용자가 직접 녹음하거나 업로드한 강의·회의 음성. 텍스트 변환(STT)을 위해 처리 서버로 전송됩니다.</li>
+    <li><strong>변환·생성 결과물</strong>: 음성에서 변환된 텍스트(녹취록), AI 요약·번역·퀴즈 결과. 원칙적으로 이용자 기기에 저장됩니다.</li>
+    <li><strong>앱 설정값</strong>: 인식 언어, 요약 언어 등 환경설정(기기 내 저장).</li>
+    <li><strong>문의 시 제공 정보</strong>: 이용자가 이메일로 피드백을 보낼 경우 이메일 주소, 앱 버전, 기기 운영체제(OS) 종류. 이는 이용자가 자발적으로 전송하는 경우에만 처리됩니다.</li>
+  </ul>
+  <p>앱은 별도의 분석·추적(Analytics/Tracking) SDK를 사용하지 않으며, 광고 식별자(IDFA 등)를 수집하지 않습니다.</p>
+
+  <h2>2. 개인정보의 처리 목적</h2>
+  <ul>
+    <li>음성의 텍스트 변환(음성 인식)</li>
+    <li>강의 내용의 AI 요약·번역·퀴즈 생성</li>
+    <li>오류 대응 및 서비스 개선(문의 처리 시)</li>
+  </ul>
+
+  <h2>3. 개인정보의 보관 및 파기</h2>
+  <ul>
+    <li><strong>기기 내 데이터</strong>: 녹음 파일과 변환·요약 결과는 이용자 기기에 저장되며, 이용자가 앱에서 삭제하거나 앱을 삭제하면 함께 파기됩니다. 운영자는 기기 내 데이터에 접근할 수 없습니다.</li>
+    <li><strong>처리 과정의 임시 데이터</strong>: 음성 파일은 변환을 위해 처리 서버로 전송되며, 처리 직후 서버의 임시 저장본은 삭제됩니다. 운영자는 음성·텍스트를 영구 저장하지 않습니다.</li>
+    <li>위탁 처리자(아래 4항)의 보관 정책은 각 사업자의 정책을 따릅니다.</li>
+  </ul>
+
+  <div class="highlight-box">
+    <h3>📍 내 데이터를 직접 삭제하는 방법</h3>
+    <p>노깡은 계정이 없는 앱이라, 서버에 남는 개인 데이터가 없습니다. 아래 두 가지 방법으로 언제든 완전히 삭제할 수 있습니다.</p>
+    <ol>
+      <li><strong>앱 내에서 개별 삭제</strong>: 원하는 녹음/노트 항목을 선택 후 삭제하면 해당 기기에서 즉시 제거됩니다.</li>
+      <li><strong>앱 삭제(완전 삭제)</strong>: 기기에서 앱을 삭제하면 기기에 저장된 모든 녹음·녹취록·요약·설정이 함께 삭제됩니다.</li>
+    </ol>
+    <p>처리(전사·요약·번역·퀴즈 생성)를 위해 서버로 전송된 음성·텍스트는 처리 완료 직후 서버에서 삭제되며 별도로 보관되지 않습니다.</p>
+  </div>
+
+  <h2>4. 개인정보 처리의 위탁 및 국외 이전</h2>
+  <p>앱은 핵심 기능 제공을 위해 다음 사업자에게 데이터 처리를 위탁하며, 이들 서버는 국외(미국 등)에 위치할 수 있습니다.</p>
+  <table>
+    <tr><th>수탁자</th><th>처리 내용</th><th>이전 항목</th><th>위치</th></tr>
+    <tr><td>AssemblyAI, Inc.</td><td>음성 → 텍스트 변환(STT)</td><td>음성 녹음 데이터</td><td>미국</td></tr>
+    <tr><td>OpenAI, L.L.C.</td><td>텍스트 요약·번역·퀴즈 생성</td><td>변환된 텍스트</td><td>미국</td></tr>
+    <tr><td>백엔드 API 호스팅사</td><td>API 중계 서버 호스팅(임시 전송)</td><td>음성·텍스트(임시)</td><td>미국 등</td></tr>
+  </table>
+  <p>이용자는 앱을 사용함으로써 위 국외 이전에 동의하는 것으로 봅니다. 각 수탁자는 입력 데이터를 자사 AI 모델 학습에 사용하지 않는 정책(영업/API 데이터)에 따라 처리하며, 서비스 제공 목적 외로 사용하지 않습니다.</p>
+
+  <h2>5. 정보주체의 권리</h2>
+  <p>이용자는 다음 권리를 행사할 수 있습니다.</p>
+  <ul>
+    <li><strong>열람·삭제</strong>: 앱 내에서 개별 녹음/노트를 언제든 삭제할 수 있습니다.</li>
+    <li><strong>처리 정지·동의 철회</strong>: 앱 삭제로 모든 기기 내 데이터 처리를 중단할 수 있습니다.</li>
+    <li>기타 문의는 아래 연락처로 요청할 수 있습니다.</li>
+  </ul>
+
+  <h2>6. 만 14세 미만 아동</h2>
+  <p>앱은 만 14세 미만 아동을 주 대상으로 하지 않으며, 아동의 개인정보를 고의로 수집하지 않습니다. 만 14세 미만 이용자는 법정대리인의 동의 하에 이용해야 합니다.</p>
+
+  <h2>7. 제3자 제공 및 판매 금지</h2>
+  <p>앱은 법령에 근거하거나 이용자의 동의가 있는 경우를 제외하고, 개인정보를 제3자에게 제공하거나 판매하지 않습니다. (4항의 위탁은 서비스 제공을 위한 처리 위탁으로 판매에 해당하지 않습니다.)</p>
+
+  <h2>8. 권한 안내</h2>
+  <ul>
+    <li><strong>마이크</strong>: 강의·회의 녹음을 위해 필요합니다.</li>
+    <li><strong>음성 인식(iOS)</strong>: 음성을 텍스트로 변환하기 위해 필요합니다.</li>
+  </ul>
+  <p>권한은 기기 설정에서 언제든 철회할 수 있으며, 철회 시 관련 기능 사용이 제한될 수 있습니다.</p>
+
+  <h2>9. 개인정보 보호를 위한 조치</h2>
+  <ul>
+    <li>서버 전송 구간은 HTTPS로 암호화됩니다.</li>
+    <li>처리 서버의 음성 임시 파일은 처리 직후 삭제됩니다.</li>
+    <li>운영자는 이용자 기기에 저장된 콘텐츠에 접근하지 않습니다.</li>
+  </ul>
+
+  <h2>10. 녹음과 관련한 이용자의 책임</h2>
+  <p>타인의 음성을 녹음·처리하는 경우, 이용자는 거주 지역의 법령(녹음 동의 등)을 준수할 책임이 있습니다. 자세한 내용은 <a href="terms.html">이용약관</a>을 참고하세요.</p>
+
+  <h2>11. 처리방침의 변경</h2>
+  <p>본 방침은 법령·서비스 변경에 따라 개정될 수 있으며, 변경 시 앱 또는 본 페이지를 통해 공지합니다.</p>
+
+  <h2>12. 문의처</h2>
+  <p>이메일: <a href="mailto:kdssds03@gmail.com">kdssds03@gmail.com</a></p>
+</main>
+
+<footer>
+  © 2026 Nokkang. All rights reserved.
+</footer>
+</body>
+</html>
