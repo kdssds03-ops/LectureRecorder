@@ -4,7 +4,6 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -72,7 +71,7 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? CustomDarkTheme : DefaultTheme}>
-      <Animated.View style={{ flex: 1 }} entering={FadeIn.duration(500)}>
+      <View style={{ flex: 1 }}>
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen
@@ -107,7 +106,7 @@ export default function RootLayout() {
           />
         </Stack>
         <StatusBar style="light" />
-      </Animated.View>
+      </View>
     </ThemeProvider>
   );
 }
