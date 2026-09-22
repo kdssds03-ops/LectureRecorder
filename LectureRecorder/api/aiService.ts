@@ -9,6 +9,7 @@
  *   app_secret   — matches APP_SECRET env var on the backend
  */
 import { LectureType } from '@/store/useRecordingStore';
+import type { RecognitionLanguage } from '@/store/useSettingsStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios, { AxiosResponse } from 'axios';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -17,6 +18,25 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 const BACKEND_URL_KEY = 'backend_url';
 const APP_SECRET_KEY = 'app_secret';
+const DEVICE_ID_KEY = 'device_id';
+
+let cachedDeviceId: string | null = null;
+
+function genDeviceId(): string {
+  return 'dev-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+}
+
+/** Stable per-install identifier used for server-side usage metering. */
+export async function getDeviceId(): Promise<string> {
+  if (cachedDeviceId) return cachedDeviceId;
+  let id = await AsyncStorage.getItem(DEVICE_ID_KEY);
+  if (!id) {
+    id = genDeviceId();
+    await AsyncStorage.setItem(DEVICE_ID_KEY, id);
+  }
+  cachedDeviceId = id;
+  return id;
+}
 const DEVELOPER_MODE_KEY = 'developer_mode';
 
 // EXPO_PUBLIC_BACKEND_URL is safe to embed (not a secret — it's just a URL).
@@ -28,6 +48,22 @@ function normalizeBaseUrl(url: string): string {
 }
 
 const DEFAULT_BACKEND_URL = normalizeBaseUrl(process.env.EXPO_PUBLIC_BACKEND_URL || '');
+const RECOGNITION_LANGUAGE_VALUES: RecognitionLanguage[] = ['auto', 'ko', 'en', 'zh'];
+
+function normalizeRecognitionLanguage(
+  recognitionLanguage: RecognitionLanguage | string | undefined
+): RecognitionLanguage {
+  if (!recognitionLanguage) return 'auto';
+  return RECOGNITION_LANGUAGE_VALUES.includes(recognitionLanguage as RecognitionLanguage)
+    ? (recognitionLanguage as RecognitionLanguage)
+    : 'auto';
+}
+
+function buildLanguageQueryParam(recognitionLanguage: RecognitionLanguage): string {
+  return recognitionLanguage === 'auto'
+    ? ''
+    : `?language=${encodeURIComponent(recognitionLanguage)}`;
+}
 
 export async function getRawBackendOverride(): Promise<string> {
   const url = await AsyncStorage.getItem(BACKEND_URL_KEY);
@@ -86,8 +122,11 @@ export async function resetBackendConfigForDebug(): Promise<void> {
 export async function getAppSecret(): Promise<string> {
   const secret = await AsyncStorage.getItem(APP_SECRET_KEY);
   const trimmed = secret?.trim();
-  // If no secret is set in AsyncStorage, use the default provided by the user
-  return trimmed || 'nokkang-secret-key';
+  // Fallback comes from build-time config, never a literal in the repo.
+  // NOTE: any value here ships inside the JS bundle, so this is a speed bump,
+  // not authentication. Real protection is server-side: rate limit +
+  // per-device usage cap + RevenueCat receipt verification.
+  return trimmed || process.env.EXPO_PUBLIC_APP_SECRET || '';
 }
 
 export async function setAppSecret(secret: string): Promise<void> {
@@ -95,7 +134,7 @@ export async function setAppSecret(secret: string): Promise<void> {
 }
 
 async function buildHeaders(): Promise<Record<string, string>> {
-  return { 'x-app-key': await getAppSecret() };
+  return { 'x-app-key': await getAppSecret(), 'x-device-id': await getDeviceId() };
 }
 
 // ── Status checking ───────────────────────────────────────────────────────────
@@ -199,7 +238,11 @@ function assertBackendUrl(url: string, context: string): void {
  *   [transcribe] poll #N  Xs elapsed
  *   [transcribe] done  total Xs
  */
-export async function transcribeAudio(audioUri: string): Promise<string> {
+export async function transcribeAudio(
+  audioUri: string,
+  recognitionLanguage: RecognitionLanguage = 'auto',
+  diarize: boolean = false
+): Promise<string> {
   const t0 = Date.now();
   const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
 
@@ -220,7 +263,10 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
   const baseUrl = await getBackendUrl();
   assertBackendUrl(baseUrl, 'transcribeAudio'); // throws clear error if blank/malformed
 
-  const uploadUrl = `${baseUrl}/api/transcribe/`;
+  const normalizedLanguage = normalizeRecognitionLanguage(recognitionLanguage);
+  const languageQuery = buildLanguageQueryParam(normalizedLanguage);
+  const diarizeQuery = diarize ? (languageQuery ? '&diarize=true' : '?diarize=true') : '';
+  const uploadUrl = `${baseUrl}/api/transcribe${languageQuery}${diarizeQuery}`;
   console.log(`[transcribeAudio] POST endpoint: ${uploadUrl}`);
   console.log(`[transcribeAudio] local file URI: ${audioUri}`);
 
@@ -236,6 +282,7 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
     type: 'audio/m4a',
     name: 'audio.m4a',
   } as unknown as Blob);
+  formData.append('language', normalizedLanguage);
 
   console.log(`[transcribeAudio] upload start | uri=${audioUri} | ${new Date().toISOString()}`);
   let uploadRes;
@@ -246,6 +293,7 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
       {
         headers: {
           'x-app-key': secret,
+          'x-device-id': await getDeviceId(),
           'Content-Type': 'multipart/form-data',
         },
         // 5 min upload timeout — large files on slow connections need headroom
@@ -323,11 +371,103 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
 }
 
 /**
+ * Diarized transcription pass: uploads ALL chunk files, the backend merges them
+ * into one continuous file and runs a single speaker-labeled transcription so
+ * speaker numbering stays consistent across the whole lecture.
+ * Returns the speaker-labeled transcript string plus time-aligned segments
+ * (with `speaker`) for seekable, color-coded display.
+ */
+export async function transcribeWithSpeakers(
+  uris: string[],
+  recognitionLanguage: RecognitionLanguage = 'auto'
+): Promise<{ transcript: string; segments: import('@/store/useRecordingStore').TranscriptSegment[] }> {
+  if (!uris || uris.length === 0) return { transcript: '', segments: [] };
+
+  const baseUrl = await getBackendUrl();
+  assertBackendUrl(baseUrl, 'transcribeWithSpeakers');
+  const secret = await getAppSecret();
+  if (!secret) throw new Error('앱 시크릿 키가 설정되지 않았습니다. 설정 탭에서 입력해 주세요.');
+
+  const normalizedLanguage = normalizeRecognitionLanguage(recognitionLanguage);
+  const languageQuery = buildLanguageQueryParam(normalizedLanguage);
+
+  const formData = new FormData();
+  uris.forEach((uri, i) => {
+    formData.append('audio', { uri, type: 'audio/m4a', name: `chunk_${i}.m4a` } as unknown as Blob);
+  });
+  formData.append('language', normalizedLanguage);
+
+  let uploadRes;
+  try {
+    uploadRes = await axios.post(
+      `${baseUrl}/api/transcribe/diarize${languageQuery}`,
+      formData,
+      {
+        headers: {
+          'x-app-key': secret,
+          'x-device-id': await getDeviceId(),
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: 300_000,
+        ...ACCEPT_ALL,
+      }
+    );
+    assertStatus(uploadRes);
+  } catch (err: any) {
+    throw classifyNetworkError(err, 'transcribeWithSpeakers/upload');
+  }
+
+  const jobId: string = uploadRes.data?.jobId;
+  if (!jobId) throw new Error('화자 분리 작업 ID를 받지 못했습니다.');
+
+  const headers = await buildHeaders();
+  let delay = POLL_INITIAL_DELAY_MS;
+
+  for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
+    await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    delay = POLL_INTERVAL_MS;
+
+    let pollRes;
+    try {
+      pollRes = await axios.get(
+        `${baseUrl}/api/transcribe/${jobId}`,
+        { headers, timeout: 20_000, ...ACCEPT_ALL }
+      );
+      assertStatus(pollRes);
+    } catch {
+      continue; // transient poll error — retry
+    }
+
+    const { status, transcript, utterances, error } = pollRes.data as {
+      status: 'processing' | 'completed' | 'error';
+      transcript?: string;
+      utterances?: { speaker: string; text: string; start: number; end: number }[];
+      error?: string;
+    };
+
+    if (status === 'completed') {
+      const segments = Array.isArray(utterances)
+        ? utterances.map((u) => ({ startMs: u.start, endMs: u.end, text: u.text, speaker: u.speaker }))
+        : [];
+      return { transcript: transcript ?? '', segments };
+    }
+    if (status === 'error') {
+      throw new Error('화자 분리 전사 실패: ' + (error ?? '알 수 없는 오류'));
+    }
+  }
+
+  throw new Error('화자 분리 전사 시간이 초과되었습니다. 녹음이 너무 길거나 서버가 응답하지 않습니다.');
+}
+
+/**
  * Quick transcription for real-time updates (30s chunks).
  * Returns the text directly.
  * Polling timeout extended to 45s for reliability.
  */
-export async function quickTranscribe(audioUri: string): Promise<string> {
+export async function quickTranscribe(
+  audioUri: string,
+  recognitionLanguage: RecognitionLanguage = 'auto'
+): Promise<string> {
   const t0 = Date.now();
   const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
 
@@ -355,7 +495,10 @@ export async function quickTranscribe(audioUri: string): Promise<string> {
     return '';
   }
 
-  console.log(`[quickTranscribe] ▶ uri=${audioUri} | endpoint=${baseUrl}/api/transcribe/quick`);
+  const normalizedLanguage = normalizeRecognitionLanguage(recognitionLanguage);
+  const languageQuery = buildLanguageQueryParam(normalizedLanguage);
+  const endpoint = `${baseUrl}/api/transcribe/quick${languageQuery}`;
+  console.log(`[quickTranscribe] ▶ uri=${audioUri} | endpoint=${endpoint}`);
 
   const formData = new FormData();
   formData.append('audio', {
@@ -363,14 +506,16 @@ export async function quickTranscribe(audioUri: string): Promise<string> {
     type: 'audio/m4a',
     name: 'quick_audio.m4a',
   } as unknown as Blob);
+  formData.append('language', normalizedLanguage);
 
   try {
     const res = await axios.post(
-      `${baseUrl}/api/transcribe/quick`,
+      endpoint,
       formData,
       {
         headers: {
           'x-app-key': secret,
+          'x-device-id': await getDeviceId(),
           'Content-Type': 'multipart/form-data',
         },
         // 90 s — chunk transcriptions go through AssemblyAI; allow extra headroom
@@ -435,7 +580,8 @@ function normalizeTranscript(text: string): string {
 export async function summarizeText(
   text: string,
   lectureType: LectureType = 'general',
-  language: string = 'ko'
+  language: string = 'ko',
+  customInstruction: string = ''
 ): Promise<{ summary: any; suggestedName: string }> {
   const normalizedText = normalizeTranscript(text);
   const baseUrl = await getBackendUrl();
@@ -447,7 +593,7 @@ export async function summarizeText(
 
   const res = await axios.post(
     `${baseUrl}/api/summarize`,
-    { text: normalizedText, lectureType, language },
+    { text: normalizedText, lectureType, language, customInstruction },
     // Chunked path for long lectures can take several minutes on the backend;
     // 5 min gives enough headroom even for 60-min recordings.
     { headers, timeout: 300_000, ...ACCEPT_ALL }
@@ -537,4 +683,147 @@ export async function generateRecordingTitle(text: string): Promise<string> {
   const finalTitle = (res.data as { title: string }).title;
   console.log(`[Diagnostic] generateRecordingTitle success: '${finalTitle}'`);
   return finalTitle;
+}
+
+/**
+ * Send transcript text to backend → backend calls OpenAI → return quiz questions.
+ * Returns an array of multiple-choice questions for self-testing.
+ */
+export async function generateQuiz(
+  text: string,
+  language: string = 'ko',
+  count: number = 5
+): Promise<import('@/store/useRecordingStore').QuizQuestion[]> {
+  const baseUrl = await getBackendUrl();
+  assertBackendUrl(baseUrl, 'generateQuiz');
+  const headers = await buildHeaders();
+
+  if (!headers['x-app-key']) {
+    throw new Error('앱 시크릿 키가 설정되지 않았습니다. 설정 탭에서 입력해 주세요.');
+  }
+
+  let res;
+  try {
+    res = await axios.post(
+      `${baseUrl}/api/quiz`,
+      { text, language, count },
+      { headers, timeout: 120_000, ...ACCEPT_ALL }
+    );
+    assertStatus(res);
+  } catch (err: any) {
+    throw classifyNetworkError(err, 'generateQuiz');
+  }
+
+  const quiz = (res.data as { quiz?: any[] }).quiz;
+  if (!Array.isArray(quiz) || quiz.length === 0) {
+    throw new Error('퀴즈를 생성하지 못했습니다. 다시 시도해 주세요.');
+  }
+  return quiz as import('@/store/useRecordingStore').QuizQuestion[];
+}
+
+
+/**
+ * Fetch a short-lived AssemblyAI streaming token from our backend so the app can
+ * open the realtime transcription WebSocket directly (lowest latency).
+ */
+export async function getStreamToken(): Promise<string> {
+  const baseUrl = await getBackendUrl();
+  assertBackendUrl(baseUrl, 'getStreamToken');
+  const headers = await buildHeaders();
+  if (!headers['x-app-key']) {
+    throw new Error('앱 시크릿 키가 설정되지 않았습니다. 설정 탭에서 입력해 주세요.');
+  }
+  let res;
+  try {
+    res = await axios.post(`${baseUrl}/api/stream-token`, {}, { headers, timeout: 20_000, ...ACCEPT_ALL });
+    assertStatus(res);
+  } catch (err: any) {
+    throw classifyNetworkError(err, 'getStreamToken');
+  }
+  const token = (res.data as { token?: string }).token;
+  if (!token) throw new Error('스트리밍 토큰을 받지 못했습니다.');
+  return token;
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/**
+ * Lecture-grounded chat: ask questions answered from the transcript context,
+ * with general-knowledge supplementation clearly marked by the backend prompt.
+ */
+export async function chatWithLecture(
+  transcript: string,
+  messages: ChatMessage[],
+  language: string = 'ko'
+): Promise<string> {
+  const baseUrl = await getBackendUrl();
+  assertBackendUrl(baseUrl, 'chatWithLecture');
+  const headers = await buildHeaders();
+
+  if (!headers['x-app-key']) {
+    throw new Error('앱 시크릿 키가 설정되지 않았습니다. 설정 탭에서 입력해 주세요.');
+  }
+
+  let res;
+  try {
+    res = await axios.post(
+      `${baseUrl}/api/chat`,
+      { text: transcript, messages, language },
+      { headers, timeout: 90_000, ...ACCEPT_ALL }
+    );
+    assertStatus(res);
+  } catch (err: any) {
+    throw classifyNetworkError(err, 'chatWithLecture');
+  }
+
+  const reply = (res.data as { reply?: string }).reply;
+  if (!reply) throw new Error('답변을 받지 못했습니다. 다시 시도해 주세요.');
+  return reply;
+}
+
+/**
+ * Generate topic chapters from time-aligned transcript segments.
+ * Sends compact { startMs, text } segments → backend asks the LLM to group them
+ * into chapters, returning [{ title, startMs }] mapped back to audio positions.
+ */
+export async function generateChapters(
+  segments: import('@/store/useRecordingStore').TranscriptSegment[],
+  language: string = 'ko'
+): Promise<import('@/store/useRecordingStore').Chapter[]> {
+  const baseUrl = await getBackendUrl();
+  assertBackendUrl(baseUrl, 'generateChapters');
+  const headers = await buildHeaders();
+
+  if (!headers['x-app-key']) {
+    throw new Error('앱 시크릿 키가 설정되지 않았습니다. 설정 탭에서 입력해 주세요.');
+  }
+
+  // Send a compact representation to keep the payload small.
+  const compact = segments.map((s) => ({ startMs: Math.round(s.startMs), text: s.text }));
+
+  let res;
+  try {
+    res = await axios.post(
+      `${baseUrl}/api/chapters`,
+      { segments: compact, language },
+      { headers, timeout: 120_000, ...ACCEPT_ALL }
+    );
+    assertStatus(res);
+  } catch (err: any) {
+    throw classifyNetworkError(err, 'generateChapters');
+  }
+
+  const chapters = (res.data as { chapters?: any[] }).chapters;
+  if (!Array.isArray(chapters) || chapters.length === 0) {
+    throw new Error('챕터를 생성하지 못했습니다. 다시 시도해 주세요.');
+  }
+  // Sanitize + clamp to valid segment time range.
+  const maxMs = segments.length ? segments[segments.length - 1].startMs : 0;
+  return chapters
+    .filter((c) => c && typeof c.title === 'string' && typeof c.startMs === 'number')
+    .map((c) => ({ title: String(c.title).slice(0, 60), startMs: Math.max(0, Math.min(c.startMs, maxMs)) }))
+    .sort((a, b) => a.startMs - b.startMs);
 }
