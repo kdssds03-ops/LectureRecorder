@@ -1,2 +1,8 @@
 
 lecture-api-backup/
+
+# app env (holds EXPO_PUBLIC_APP_SECRET)
+LectureRecorder/.env
+.env
+**/.env
+
